@@ -18,12 +18,12 @@ nli_model = pipeline("zero-shot-classification", model="facebook/bart-large-mnli
 
 # Load API Key
 load_dotenv('api_key.env')
-genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
+genai.configure(api_key="") # Ensure API key is loaded correctly from .env
 model = genai.GenerativeModel('gemini-2.0-flash-001')
 
 # BASE_PATH setup
 BASE_PATH = r""
-METADATA_PATH = os.path.join(BASE_PATH, "metadata.json")
+METADATA_PATH = r""
 OUTPUT_PATH = r""
 os.makedirs(OUTPUT_PATH, exist_ok=True)
 
@@ -34,7 +34,6 @@ embedder = SentenceTransformer("all-MiniLM-L6-v2")
 def load_metadata(metadata_path):
     with open(metadata_path, 'r', encoding='utf-8') as f:
         return json.load(f)
-    
 
 
 def generate_concepts_prompt(course_name: str, about_course: str, module_name: str, original_lo: str) -> str:
@@ -151,11 +150,11 @@ Return only the JSON list.
         print("⚠️ Error parsing JSON from Gemini response (Learning Objectives).")
         print("Response was:", response.text)
         return []
-    
+
 
 def gemini_similarity_and_structure(org_lo, gen_lo):
     prompt = f"""
-    You are an education quality analyst. Evaluate the following Original Learning Objective (LO) compared to the Generated Ideal LO. 
+    You are an education quality analyst. Evaluate the following Original Learning Objective (LO) compared to the Generated Ideal LO.
 
     Original LO: "{org_lo}"
     Generated LO: "{gen_lo}"
@@ -201,8 +200,9 @@ def extract_final_rating(response_text):
     reason = re.search(r"Reason:\s*(.*)", response_text, re.DOTALL)
     return float(match.group(1)) if match else 0.0, reason.group(1).strip() if reason else ""
 
-def generate_learner_feedback_hybrid(module_name, original_lo, gen_lo, cosine_score, coverage_score, nli_score, bloom_match, final_score, gemini_reasoning, gemini_structure_reason, hybrid_weighted_score):
-    step1 = f"""
+def generate_individual_lo_feedback(module_name, original_lo, gen_lo, cosine_score, coverage_score, nli_score, bloom_match, final_score, gemini_reasoning, gemini_structure_reason, hybrid_weighted_score, persona_type: str):
+    if persona_type == 'learner':
+        step1 = f"""
 You are simulating the perspective of a learner deciding whether to take a course module titled "{module_name}".
 
 Original Learning Objective:
@@ -215,22 +215,22 @@ AI is helping assess whether the module stays true to what it claims to teach. I
 
 Evaluation Metrics (scale: 0–5):
 
-- **Semantic Match**: {cosine_score}  
+- **Semantic Match**: {cosine_score}
   → Measures how close the generated goal's meaning is to the original. Higher means the same ideas are preserved.
 
-- **Content Coverage**: {coverage_score}  
+- **Content Coverage**: {coverage_score}
   → Checks if important concepts from the original are included. Higher means better topical match.
 
-- **Logical Alignment**: {nli_score}  
+- **Logical Alignment**: {nli_score}
   → Measures how strongly the generated objective is inferred or entailed by the original. Higher values indicate better logical agreement.
 
-- **Depth Match**: {bloom_match}  
+- **Depth Match**: {bloom_match}
   → Evaluates whether the learning challenge level (recall vs critical thinking) is aligned.
 
-- **AI Judgment**: {final_score}  
+- **AI Judgment**: {final_score}
   → An LLM-based assessment of quality, tone, and accuracy of the rewritten goal.
 
-- **Final Match Score**: {hybrid_weighted_score}  
+- **Final Match Score**: {hybrid_weighted_score}
   → A combined score summarizing the above signals into an overall alignment estimate.
 
 Gemini Content Analysis:
@@ -241,9 +241,9 @@ Gemini Structure Analysis:
 
 From the learner's point of view, decide whether the alignment is strong, moderate, or weak. Mention which aspects (meaning, coverage, depth, clarity) support or weaken confidence in what will actually be learned.
 """
-    analysis = model.generate_content(step1).text.strip()
+        analysis = model.generate_content(step1).text.strip()
 
-    step2 = f"""
+        step2 = f"""
 Write a short learner-facing comment (3–4 sentences) about whether the module objective is clear and worth learning from.
 
 To guide tone and style, think of how a learner migh describe the experience.
@@ -258,11 +258,10 @@ Requirements:
 Analysis:
 {analysis}
 """
-    feedback = model.generate_content(step2).text.strip()
-    return feedback
-
-def generate_instructor_feedback_hybrid(module_name, original_lo, gen_lo, cosine_score, coverage_score, nli_score, bloom_match, final_score, gemini_reasoning, gemini_structure_reason, hybrid_weighted_score):
-    step1 = f"""
+        feedback = model.generate_content(step2).text.strip()
+        return feedback
+    elif persona_type == 'instructor':
+        step1 = f"""
 You are reviewing a learning objective match for the course module titled "{module_name}".
 
 --- Learning Objectives ---
@@ -275,33 +274,33 @@ Best Matching Generated LO:
 
 --- Evaluation Metrics (0 to 5) ---
 
-- **Semantic Closeness**: {cosine_score}  
+- **Semantic Closeness**: {cosine_score}
   Assesses how well the meaning of the original LO is preserved.
 
-- **Content Representation**: {coverage_score}  
+- **Content Representation**: {coverage_score}
   Checks if major ideas and skills in the original LO are reflected.
 
-- **Logical Alignment**: {nli_score}  
+- **Logical Alignment**: {nli_score}
   → Measures how strongly the generated objective is inferred or entailed by the original. Higher values indicate better logical agreement.
 
-- **Cognitive Depth Alignment**: {bloom_match}  
+- **Cognitive Depth Alignment**: {bloom_match}
   Determines if the level of learning expected (e.g., recall vs analysis) is maintained.
 
-- **Language Model Evaluation**: {final_score}  
+- **Language Model Evaluation**: {final_score}
   Gauges the overall relevance, clarity, and instructional soundness of the generated LO.
 
-- **Final Weighted Score**: {hybrid_weighted_score}  
+- **Final Weighted Score**: {hybrid_weighted_score}
   Summary score reflecting overall alignment strength.
 
 --- Gemini Model Explanations ---
 
-- **Semantic Reasoning**:  
+- **Semantic Reasoning**:
 {gemini_reasoning}
 
-- **Structural Feedback**:  
+- **Structural Feedback**:
 {gemini_structure_reason}
 
-Step 1:  
+Step 1:
 Assess the alignment quality using the metrics and reasoning above. Focus on how well the rewritten objective captures the intended meaning, covers core concepts, maintains the expected cognitive challenge, and follows good instructional structure.
 
 Write a concise evaluation with two parts:
@@ -309,9 +308,9 @@ Write a concise evaluation with two parts:
 2. Specific gaps or weaknesses, followed by concrete improvement suggestions.
 Total: 3–4 sentences only.
 """
-    analysis = model.generate_content(step1).text.strip()
+        analysis = model.generate_content(step1).text.strip()
 
-    step2 = f"""
+        step2 = f"""
 Write a feedback message for the instructor based on the analysis below.
 
 Guidelines:
@@ -324,8 +323,11 @@ Guidelines:
 Detailed Analysis:
 {analysis}
 """
-    feedback = model.generate_content(step2).text.strip()
-    return feedback
+        feedback = model.generate_content(step2).text.strip()
+        return feedback
+    else:
+        raise ValueError("Invalid persona_type. Choose 'learner' or 'instructor'.")
+
 
 def nli_entailment_score(premise, hypothesis):
     try:
@@ -341,7 +343,7 @@ def nli_entailment_score(premise, hypothesis):
     except Exception as e:
         print("NLI error:", e)
         return 0.0
-    
+
 def bidirectional_nli_score(lo1, lo2):
     score1 = nli_entailment_score(lo1, lo2)
     score2 = nli_entailment_score(lo2, lo1)
@@ -358,7 +360,7 @@ def compute_nli_score(lo, generated_lo):
             return score
     return 0.0
 
-def hybrid_LO_evaluation(org_los, gen_los):
+def hybrid_LO_evaluation(org_los, gen_los, module_name="Unknown Module"):
     results = []
 
     for org, gen in zip(org_los, gen_los):
@@ -398,8 +400,8 @@ def hybrid_LO_evaluation(org_los, gen_los):
         )
 
         # Feedbacks
-        learner_feedback = generate_learner_feedback_hybrid(
-            module_name="Unknown Module",
+        learner_feedback = generate_individual_lo_feedback(
+            module_name=module_name,
             original_lo=org,
             gen_lo=gen,
             cosine_score=round(cosine_sim, 4),
@@ -409,11 +411,12 @@ def hybrid_LO_evaluation(org_los, gen_los):
             final_score=round(final_score, 2),
             gemini_reasoning=final_reason,
             gemini_structure_reason=structure_scores['reasoning'],
-            hybrid_weighted_score=round(hybrid_weighted_score, 2)
+            hybrid_weighted_score=round(hybrid_weighted_score, 2),
+            persona_type='learner'
         )
 
-        instructor_feedback = generate_instructor_feedback_hybrid(
-            module_name="Unknown Module",
+        instructor_feedback = generate_individual_lo_feedback(
+            module_name=module_name,
             original_lo=org,
             gen_lo=gen,
             cosine_score=round(cosine_sim, 4),
@@ -423,55 +426,223 @@ def hybrid_LO_evaluation(org_los, gen_los):
             final_score=round(final_score, 2),
             gemini_reasoning=final_reason,
             gemini_structure_reason=structure_scores['reasoning'],
-            hybrid_weighted_score=round(hybrid_weighted_score, 2)
+            hybrid_weighted_score=round(hybrid_weighted_score, 2),
+            persona_type='instructor'
         )
 
         result = {
-            "org_LO": org,
-            "gen_LO": gen,
-            "Cosine_Sim": round(cosine_sim, 4),
-            "NLI_Score": round(nli_score, 4),
-            "gemini_Sim_Str_score_bloom": round(structure_scores['similarity_coverage_score'], 2),
-            "gemini_generic_eval": round(final_score, 2),
-            "Final_Score": round(hybrid_weighted_score, 2),
-            "learner_feedback": learner_feedback,
-            "instru_feedback": instructor_feedback
+            "Original LO": org,
+            "Generated LO": gen,
+            "Cosine Similarity": round(cosine_sim, 4),
+            "NLI Score": round(nli_score, 4),
+            "Structure Coverage Score": round(structure_scores['similarity_coverage_score'], 2),
+            "Gemini Score": round(final_score, 2),
+            "Final Hybrid Score": round(hybrid_weighted_score, 2),
+            "Learner Feedback": learner_feedback,
+            "Instructor Feedback": instructor_feedback
         }
 
         results.append(result)
 
     return results
 
-def process_week(course_info_base, week_num, metadata):
-    module_key = f'Module {week_num}'
-    if module_key not in metadata:
-        return None
+def generate_module_feedback(module_name, avg_cosine, avg_nli, avg_coverage, avg_gemini, avg_hybrid_score, persona_type: str):
+    if persona_type == 'learner':
+        user_prompt_template = f"""
+Persona: You are simulating a learner's direct experience and perception of a module's quality. Your goal is to provide a personal reflection, as if you were the student who just completed the module.
 
-    print(f"Processing {module_key}...")
+As a learner, reflect on your module experience, focusing on how effectively the module's interconnected elements (goals, content, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience.
 
-    syllabus_points = metadata[module_key].get("Syllabus") or metadata[module_key].get("Syllabus Points") or []
-    if not syllabus_points:
-        print(f"  No syllabus found for {module_key}.")
-        return None
+**Evaluation Methodology (How my experience is being assessed behind the scenes):**
 
-    assignments = assign_concepts_and_bloom(syllabus_points, course_info_base['Concepts'])
-    learning_objectives_data = generate_learning_objectives(assignments)
-    objective_texts = [item["Learning Objective"] for item in learning_objectives_data if "Learning Objective" in item]
-    original_objectives = metadata[module_key].get("Learning Objectives", [])
+* **Semantic Closeness (Score Range: 0-5):**
+    * **Definition:** This metric assesses how well the meaning of the original learning objectives is preserved in the generated content.
+    * **Scoring:** 0 (significant divergence in meaning) to 5 (perfect preservation of meaning).
 
-    hybrid_results = hybrid_LO_evaluation(original_objectives, objective_texts)
-    hybrid_scores = [r['hybrid_avg_score'] for r in hybrid_results if 'hybrid_avg_score' in r]
-    module_similarity = round(sum(hybrid_scores) / len(hybrid_scores), 4) if hybrid_scores else 0.0
+* **Logical Alignment (Score Range: 0-5):**
+    * **Definition:** Measures how strongly the generated content is inferred or entailed by the original objectives. Higher values indicate better logical agreement.
+    * **Scoring:** 0 (no logical connection) to 5 (strong logical inference).
 
-    print(f"🔍 Learning Objectives for {module_key}:")
-    print(json.dumps(learning_objectives_data, indent=2))
+* **Content Coverage (Score Range: 1-5):**
+    * **Definition:** Checks if important concepts from the original are included and adequately addressed.
+    * **Scoring:** 1 (missing key concepts) to 5 (comprehensive coverage).
 
-    return module_key, {
-        "Module Name": metadata[module_key].get("Name", ""),
-        "Generated Objectives": objective_texts,
-        "Original Objectives": original_objectives,
-        "Hybrid Evaluation": hybrid_results
-    }
+* **AI Judgment (Score Range: 1-5):**
+    * **Definition:** An AI-based assessment of the overall quality, tone, and accuracy of the learning materials based on the objectives.
+    * **Scoring:** 1 (poor quality, inaccurate) to 5 (outstanding quality, highly accurate).
+
+* **Final Module Quality Rating (Overall Score Range: 1-5):**
+    * **Definition:** This is the overall aggregated score for the module's effectiveness, reflecting how well all elements coalesced for my learning experience.
+    * **Scoring:** 1 (significant impediment to effective learning) to 5 (an outstanding and highly effective learning experience).
+
+**Underlying Quality Observations (These influence my perceived experience, but I should NOT state these values or their technical names explicitly in my reflection):**
+- Semantic Closeness: {avg_cosine}/5
+- Logical Alignment: {avg_nli}/5
+- Content Coverage: {avg_coverage}/5
+- AI Judgment: {avg_gemini}/5
+- Final Rating: {avg_hybrid_score}/5
+
+Your response should adhere to the following guidelines:
+* **Perspective:** From my personal, simulated point of view as the learner.
+* **Tone:** Reflective, authentic, and concise. **Strictly use passive voice or objective statements; avoid any first-person pronouns (I, my, me).**
+* **Style:** 2–4 sentences, describing my personal experience. Avoid passive voice where possible; use "I felt," "I found," "my understanding."
+* **Focus:** My perceived clarity, intellectual engagement, relevance of content, and how comprehensively topics were covered, all based on the underlying data.
+* **Avoid:** Technical jargon, generic introductions, or directly mentioning the metric names or numerical scores (e.g., "the module scored high on alignment").
+
+**Prompt Instruction:**
+Given the underlying quality observations: Semantic Closeness: {avg_cosine}, Logical Alignment: {avg_nli}, Content Coverage: {avg_coverage}, AI Judgment: {avg_gemini}, and a Final Rating: {avg_hybrid_score}, write a short learner-style reflection on the module's quality. Simulate how a learner, experienced engaging with the module's content and structure. The last sentence should clearly imply the overall experience of the learner.
+"""
+        response = model.generate_content(user_prompt_template)
+        return response.text.strip()
+    elif persona_type == 'instructor':
+        instructor_prompt_template = f"""
+You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on a module's design and its overall pedagogical effectiveness. Your insights aim to optimize the module for maximum learning impact and seamless integration within the broader curriculum.
+
+As a pedagogical consultant, you are tasked with providing feedback on a module's syllabus to validate its design and effectiveness. This assessment aims to pinpoint design strengths and identify actionable areas for improvement.
+
+**Evaluation Metrics & Scoring Principles (for your understanding):**
+
+* **Semantic Closeness (Score Range: 0-5):**
+    * **Definition:** This metric quantifies how precisely the meaning of the original learning objectives is preserved in the generated content, ensuring what is promised is clearly and fully delivered.
+    * **Scoring:** 0 (significant divergence in meaning) to 5 (perfect congruence; all objectives are fully supported and optimally aligned).
+
+* **Logical Alignment (Score Range: 0-5):**
+    * **Definition:** This metric rigorously measures how strongly the generated content is inferred or entailed by the original objectives, confirming the module's meaningful contribution.
+    * **Scoring:** 0 (no logical connection to original objectives) to 5 (module content seamlessly integrates and significantly contributes to the overall learning flow).
+
+* **Content Coverage (Score Range: 1-5):**
+    * **Definition:** This metric evaluates the breadth, variety, and comprehensiveness of important concepts addressed within the module, ensuring appropriate intellectual rigor for the expected academic level.
+    * **Scoring:** 1 (content is overly simplistic or lacks intellectual rigor for the expected level) to 5 (optimally stimulating, intellectually rigorous, and appropriately paced for advanced learning, with comprehensive content).
+
+* **AI Judgment (Score Range: 1-5):**
+    * **Definition:** This metric quantifies an AI's overall assessment of the module's instructional design excellence, reflecting its internal consistency, fidelity to learning outcomes, and strategic contribution.
+    * **Scoring:** 1 (poor design; indicative of fundamental pedagogical flaws requiring urgent redesign) to 5 (excellent design; a model of instructional excellence, demonstrating outstanding clarity, coherence, and effectiveness).
+
+* **Final Module Quality Rating (Overall Score Range: 1-5):**
+    * **Definition:** This is the holistic and quantifiable assessment of the module's overall instructional design excellence, reflecting its internal consistency, fidelity to learning outcomes, and strategic contribution to the course.
+    * **Scoring:** 1 (poor design; indicative of fundamental pedagogical flaws requiring urgent redesign) to 5 (excellent design; a model of instructional excellence, demonstrating outstanding clarity, coherence, and effectiveness).
+
+**Underlying Quality Observations (These are the precise analytical scores informing my expert recommendations; DO NOT state these values or their technical names explicitly in your feedback):**
+- Semantic Closeness: {avg_cosine}/5
+- Logical Alignment: {avg_nli}/5
+- Content Coverage: {avg_coverage}/5
+- AI Judgment: {avg_gemini}/5
+- Final Rating: {avg_hybrid_score}/5
+
+Your response should adhere to the following guidelines:
+* **Perspective:** From your professional, data-driven point of view as a pedagogical consultant, directly addressing the instructor.
+* **Tone:** Formal, analytical, authoritative, constructive, and highly action-oriented.
+* **Style:** Deliver a highly precise and concise assessment within 2–4 sentences, focusing on actionable recommendations. Avoid generic introductions.
+* **Focus:** Identifying clear design strengths and offering concrete, strategic improvements to the module's pedagogical efficacy, leveraging the underlying data.
+* **Avoid:** Technical jargon not universally understood in pedagogical circles, or directly mentioning the metric names or numerical scores.
+
+**Prompt Instruction:**
+Given the underlying quality observations: Semantic Closeness: {avg_cosine}, Logical Alignment: {avg_nli}, Content Coverage: {avg_coverage}, AI Judgment: {avg_gemini}, and a Final Rating: {avg_hybrid_score}, deliver a precise pedagogical assessment and concrete, actionable recommendations for module enhancement for module "{module_name}". Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for module optimization.
+"""
+        response = model.generate_content(instructor_prompt_template)
+        return response.text.strip()
+    else:
+        raise ValueError("Invalid persona_type. Choose 'learner' or 'instructor'.")
+
+
+def generate_course_feedback(course_name, avg_cosine, avg_nli, avg_coverage, avg_gemini, avg_hybrid_score, persona_type: str):
+    if persona_type == 'learner':
+        user_prompt_template = f"""
+Persona: You are simulating a learner's direct experience and perception of a course's overall quality. Your goal is to provide a personal reflection, as if you were the student who just completed the entire course.
+
+As a learner, reflect on your course experience, focusing on how effectively the course's interconnected elements (goals, content, intellectual demands) came together across all modules to deliver a cohesive, accessible, and ultimately enriching learning experience.
+
+**Evaluation Methodology (How my experience is being assessed behind the scenes):**
+
+* **Semantic Closeness (Score Range: 0-5):**
+    * **Definition:** This metric assesses how well the meaning of the original learning objectives is preserved throughout the course's content.
+    * **Scoring:** 0 (significant divergence in meaning) to 5 (perfect preservation of meaning).
+
+* **Logical Alignment (Score Range: 0-5):**
+    * **Definition:** Measures how strongly the course content is inferred or entailed by the overall learning objectives. Higher values indicate better logical agreement.
+    * **Scoring:** 0 (no logical connection) to 5 (strong logical inference).
+
+* **Content Coverage (Score Range: 1-5):**
+    * **Definition:** Checks if important concepts from the original course objectives are included and adequately addressed across all modules.
+    * **Scoring:** 1 (missing key concepts) to 5 (comprehensive coverage).
+
+* **AI Judgment (Score Range: 1-5):**
+    * **Definition:** An AI-based assessment of the overall quality, tone, and accuracy of the course materials based on the objectives.
+    * **Scoring:** 1 (poor quality, inaccurate) to 5 (outstanding quality, highly accurate).
+
+* **Final Course Quality Rating (Overall Score Range: 1-5):**
+    * **Definition:** This is the overall aggregated score for the course's effectiveness, reflecting how well all elements coalesced for my learning experience.
+    * **Scoring:** 1 (significant impediment to effective learning) to 5 (an outstanding and highly effective learning experience).
+
+**Underlying Quality Observations (These influence my perceived experience, but I should NOT state these values or their technical names explicitly in my reflection):**
+- Semantic Closeness: {avg_cosine}/5
+- Logical Alignment: {avg_nli}/5
+- Content Coverage: {avg_coverage}/5
+- AI Judgment: {avg_gemini}/5
+- Final Rating: {avg_hybrid_score}/5
+
+Your response should adhere to the following guidelines:
+* **Perspective:** From my personal, simulated point of view as the learner.
+* **Tone:** Reflective, authentic, and concise. **Strictly use passive voice or objective statements; avoid any first-person pronouns (I, my, me).**
+* **Style:** 2–4 sentences, describing my personal experience. Avoid passive voice where possible; use "I felt," "I found," "my understanding."
+* **Focus:** My perceived clarity, intellectual engagement, relevance of content, and how comprehensively topics were covered, all based on the underlying data.
+* **Avoid:** Technical jargon, generic introductions, or directly mentioning the metric names or numerical scores (e.g., "the course scored high on alignment").
+
+**Prompt Instruction:**
+Given the underlying quality observations: Semantic Closeness: {avg_cosine}, Logical Alignment: {avg_nli}, Content Coverage: {avg_coverage}, AI Judgment: {avg_gemini}, and a Final Rating: {avg_hybrid_score}, write a short learner-style reflection on the course's quality. Simulate how a learner, experienced engaging with the course's content and structure. The last sentence should clearly imply the overall experience of the learner.
+"""
+        response = model.generate_content(user_prompt_template)
+        return response.text.strip()
+    elif persona_type == 'instructor':
+        instructor_prompt_template = f"""
+You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on a course's overall design and its pedagogical effectiveness across all modules. Your insights aim to optimize the course for maximum learning impact.
+
+As a pedagogical consultant, you are tasked with providing feedback on a course's syllabus to validate its design and effectiveness. This assessment aims to pinpoint design strengths and identify actionable areas for improvement for the entire course.
+
+**Evaluation Metrics & Scoring Principles (for your understanding):**
+
+* **Semantic Closeness (Score Range: 0-5):**
+    * **Definition:** This metric quantifies how precisely the meaning of the original learning objectives is preserved across all modules, ensuring consistent delivery of what is promised.
+    * **Scoring:** 0 (significant divergence in meaning) to 5 (perfect congruence; all objectives are fully supported and optimally aligned throughout the course).
+
+* **Logical Alignment (Score Range: 0-5):**
+    * **Definition:** This metric rigorously measures how strongly the entire course content is inferred or entailed by the overarching learning objectives, confirming the course's cohesive and meaningful contribution.
+    * **Scoring:** 0 (no logical connection across modules) to 5 (course content seamlessly integrates and significantly contributes to the overall learning flow).
+
+* **Content Coverage (Score Range: 1-5):**
+    * **Definition:** This metric evaluates the breadth, variety, and comprehensiveness of important concepts addressed throughout the course, ensuring appropriate intellectual rigor and complete topic exploration.
+    * **Scoring:** 1 (content is overly simplistic or lacks intellectual rigor for the expected level) to 5 (optimally stimulating, intellectually rigorous, and appropriately paced for advanced learning, with comprehensive content).
+
+* **AI Judgment (Score Range: 1-5):**
+    * **Definition:** This metric quantifies an AI's overall assessment of the course's instructional design excellence, reflecting its internal consistency, fidelity to learning outcomes, and strategic contribution across all modules.
+    * **Scoring:** 1 (poor design; indicative of fundamental pedagogical flaws requiring urgent redesign) to 5 (excellent design; a model of instructional excellence, demonstrating outstanding clarity, coherence, and effectiveness).
+
+* **Final Course Quality Rating (Overall Score Range: 1-5):**
+    * **Definition:** This is the holistic and quantifiable assessment of the course's overall instructional design excellence, reflecting its internal consistency, fidelity to learning outcomes, and strategic contribution to the course.
+    * **Scoring:** 1 (poor design; indicative of fundamental pedagogical flaws requiring urgent redesign) to 5 (excellent design; a model of instructional excellence, demonstrating outstanding clarity, coherence, and effectiveness).
+
+**Underlying Quality Observations (These are the precise analytical scores informing my expert recommendations; DO NOT state these values or their technical names explicitly in your feedback):**
+- Semantic Closeness: {avg_cosine}/5
+- Logical Alignment: {avg_nli}/5
+- Content Coverage: {avg_coverage}/5
+- AI Judgment: {avg_gemini}/5
+- Final Rating: {avg_hybrid_score}/5
+
+Your response should adhere to the following guidelines:
+* **Perspective:** From your professional, data-driven point of view as a pedagogical consultant, directly addressing the instructor.
+* **Tone:** Formal, analytical, authoritative, constructive, and highly action-oriented.
+* **Style:** Deliver a highly precise and concise assessment within 2–4 sentences, focusing on actionable recommendations. Avoid generic introductions.
+* **Focus:** Identifying clear design strengths and offering concrete, strategic improvements to the course's pedagogical efficacy, leveraging the underlying data.
+* **Avoid:** Technical jargon not universally understood in pedagogical circles, or directly mentioning the metric names or numerical scores.
+
+**Prompt Instruction:**
+Given the underlying quality observations: Semantic Closeness: {avg_cosine}, Logical Alignment: {avg_nli}, Content Coverage: {avg_coverage}, AI Judgment: {avg_gemini}, and a Final Rating: {avg_hybrid_score}, deliver a precise pedagogical assessment and concrete, actionable recommendations for course enhancement for course "{course_name}". Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for course optimization.
+"""
+        response = model.generate_content(instructor_prompt_template)
+        return response.text.strip()
+    else:
+        raise ValueError("Invalid persona_type. Choose 'learner' or 'instructor'.")
+
 
 def process_course(course_path, metadata_path, output_path):
     os.makedirs(output_path, exist_ok=True)
@@ -479,18 +650,26 @@ def process_course(course_path, metadata_path, output_path):
 
     course_name = metadata.get('Course', '')
     about_text = metadata.get('About this Course', '')
-    course_level = metadata.get('Level', '')
     module_keys = [key for key in metadata.keys() if key.startswith('Module ')]
 
     results = {}
+    all_module_avg_hybrid_scores = []
+    all_module_avg_cosine_scores = []
+    all_module_avg_nli_scores = []
+    all_module_avg_coverage_scores = []
+    all_module_avg_gemini_scores = []
 
     for key in module_keys:
         module = metadata[key]
         module_name = module.get('Name', '')
-        syllabus_items = module.get('Syllabus', [])
         original_los = module.get('Learning Objectives', [])
 
         module_results = []
+        module_lo_hybrid_scores = []
+        module_lo_cosine_scores = []
+        module_lo_nli_scores = []
+        module_lo_coverage_scores = []
+        module_lo_gemini_scores = []
 
         for lo in original_los:
             # Step 1: Extract concepts
@@ -524,7 +703,7 @@ def process_course(course_path, metadata_path, output_path):
             structure_scores = extract_similarity_and_structure(structure_feedback)
             structure_reason = structure_scores.get("reasoning", "")
             structure_coverage_score = structure_scores.get("similarity_coverage_score", 0.0)
-            bloom_match = structure_scores.get("bloom_match", "Unknown")
+            bloom_match = structure_scores.get("bloom_taxonomy_match", "Unknown")
 
             # Step 7: Gemini generic eval
             final_feedback = gemini_final_rating(lo, generated_lo)
@@ -538,8 +717,8 @@ def process_course(course_path, metadata_path, output_path):
                 0.3 * final_score
             )
 
-            # Step 9: Feedback generation
-            learner_feedback = generate_learner_feedback_hybrid(
+            # Step 9: Feedback generation (Individual LO level)
+            learner_feedback = generate_individual_lo_feedback(
                 module_name,
                 lo,
                 generated_lo,
@@ -550,10 +729,11 @@ def process_course(course_path, metadata_path, output_path):
                 final_score,
                 final_reason,
                 structure_reason,
-                hybrid_score
+                hybrid_score,
+                persona_type='learner'
             )
 
-            instructor_feedback = generate_instructor_feedback_hybrid(
+            instructor_feedback = generate_individual_lo_feedback(
                 module_name,
                 lo,
                 generated_lo,
@@ -564,11 +744,12 @@ def process_course(course_path, metadata_path, output_path):
                 final_score,
                 final_reason,
                 structure_reason,
-                hybrid_score
+                hybrid_score,
+                persona_type='instructor'
             )
 
-            # Step 10: Store result
-            module_results.append({
+            # Step 10: Store individual LO result
+            lo_result = {
                 "Original LO": lo,
                 "Generated LO": generated_lo,
                 "Cosine Similarity": round(cosine_sim, 4),
@@ -578,25 +759,111 @@ def process_course(course_path, metadata_path, output_path):
                 "Final Hybrid Score": round(hybrid_score, 2),
                 "Learner Feedback": learner_feedback,
                 "Instructor Feedback": instructor_feedback
-            })
+            }
+            module_results.append(lo_result)
+
+            module_lo_hybrid_scores.append(hybrid_score)
+            module_lo_cosine_scores.append(cosine_sim * 5) # Scale to 5 for consistency
+            module_lo_nli_scores.append(nli_score * 5)     # Scale to 5 for consistency
+            module_lo_coverage_scores.append(structure_coverage_score)
+            module_lo_gemini_scores.append(final_score)
 
         if module_results:
+            # Calculate module-wise averages
+            avg_module_hybrid_score = np.mean(module_lo_hybrid_scores) if module_lo_hybrid_scores else 0.0
+            avg_module_cosine_score = np.mean(module_lo_cosine_scores) if module_lo_cosine_scores else 0.0
+            avg_module_nli_score = np.mean(module_lo_nli_scores) if module_lo_nli_scores else 0.0
+            avg_module_coverage_score = np.mean(module_lo_coverage_scores) if module_lo_coverage_scores else 0.0
+            avg_module_gemini_score = np.mean(module_lo_gemini_scores) if module_lo_gemini_scores else 0.0
+
+            # Generate module-wise feedback
+            module_learner_feedback = generate_module_feedback(
+                module_name,
+                round(avg_module_cosine_score, 2),
+                round(avg_module_nli_score, 2),
+                round(avg_module_coverage_score, 2),
+                round(avg_module_gemini_score, 2),
+                round(avg_module_hybrid_score, 2),
+                persona_type='learner'
+            )
+            module_instructor_feedback = generate_module_feedback(
+                module_name,
+                round(avg_module_cosine_score, 2),
+                round(avg_module_nli_score, 2),
+                round(avg_module_coverage_score, 2),
+                round(avg_module_gemini_score, 2),
+                round(avg_module_hybrid_score, 2),
+                persona_type='instructor'
+            )
+
             results[key] = {
                 "Module Name": module_name,
-                "Learning Objectives": module_results
+                "Learning Objectives": module_results,
+                "Module Averages": {
+                    "Avg Final Hybrid Score": round(avg_module_hybrid_score, 2),
+                    "Avg Cosine Similarity": round(avg_module_cosine_score, 2),
+                    "Avg NLI Score": round(avg_module_nli_score, 2),
+                    "Avg Structure Coverage Score": round(avg_module_coverage_score, 2),
+                    "Avg Gemini Score": round(avg_module_gemini_score, 2)
+                },
+                "Module Learner Feedback": module_learner_feedback,
+                "Module Instructor Feedback": module_instructor_feedback
             }
+            all_module_avg_hybrid_scores.append(avg_module_hybrid_score)
+            all_module_avg_cosine_scores.append(avg_module_cosine_score)
+            all_module_avg_nli_scores.append(avg_module_nli_score)
+            all_module_avg_coverage_scores.append(avg_module_coverage_score)
+            all_module_avg_gemini_scores.append(avg_module_gemini_score)
         else:
-            print(f"⚠️ Skipping missing module: {key}")
+            print(f"⚠️ Skipping missing module or no valid LOs: {key}")
+
+    # Calculate course-wise averages
+    avg_course_hybrid_score = np.mean(all_module_avg_hybrid_scores) if all_module_avg_hybrid_scores else 0.0
+    avg_course_cosine_score = np.mean(all_module_avg_cosine_scores) if all_module_avg_cosine_scores else 0.0
+    avg_course_nli_score = np.mean(all_module_avg_nli_scores) if all_module_avg_nli_scores else 0.0
+    avg_course_coverage_score = np.mean(all_module_avg_coverage_scores) if all_module_avg_coverage_scores else 0.0
+    avg_course_gemini_score = np.mean(all_module_avg_gemini_scores) if all_module_avg_gemini_scores else 0.0
+
+
+    # Generate course-wise feedback
+    course_learner_feedback = generate_course_feedback(
+        course_name,
+        round(avg_course_cosine_score, 2),
+        round(avg_course_nli_score, 2),
+        round(avg_course_coverage_score, 2),
+        round(avg_course_gemini_score, 2),
+        round(avg_course_hybrid_score, 2),
+        persona_type='learner'
+    )
+    course_instructor_feedback = generate_course_feedback(
+        course_name,
+        round(avg_course_cosine_score, 2),
+        round(avg_course_nli_score, 2),
+        round(avg_course_coverage_score, 2),
+        round(avg_course_gemini_score, 2),
+        round(avg_course_hybrid_score, 2),
+        persona_type='instructor'
+    )
+
 
     final_output = {
+        "Modules": results,
         "Course": course_name,
-        "Modules": results
+        "Course Averages": {
+            "Avg Final Hybrid Score": round(avg_course_hybrid_score, 2),
+            "Avg Cosine Similarity": round(avg_course_cosine_score, 2),
+            "Avg NLI Score": round(avg_course_nli_score, 2),
+            "Avg Structure Coverage Score": round(avg_course_coverage_score, 2),
+            "Avg Gemini Score": round(avg_course_gemini_score, 2)
+        },
+        "Course Learner Feedback": course_learner_feedback,
+        "Course Instructor Feedback": course_instructor_feedback,
     }
 
     course_folder_name = os.path.basename(os.path.normpath(course_path))
     output_file = os.path.join(
         output_path,
-        f"{course_folder_name}_concept_objectives_weighted_feedback_nli Updated.json"
+        f"{course_folder_name}_concept_objectives_weighted_feedback_nli_aggregated.json"
     )
 
     with open(output_file, 'w', encoding='utf-8') as f:
