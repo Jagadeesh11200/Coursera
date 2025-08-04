@@ -36,7 +36,7 @@ else:
     device = 'cpu'
     print("No GPU available, using CPU")
 
-genai.configure(api_key = "AIzaSyCMcLP2PCois8YR3r1dreKViNL8qHJ7YyI")
+genai.configure(api_key = "")
 t_model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2', device=device)
 model = genai.GenerativeModel(model_name="gemini-2.0-flash-001")
 
@@ -432,8 +432,8 @@ def learner_expectation_course_outcome_analysis(service_account_file, folder_id)
     return output
 
 if __name__ == "__main__":
-    service_account_file = r"C:\Users\HariSaiCharanVemulap\Desktop\course_era\slack-project.json"
-    folder_id = "1vq_CV_1gA5Rw0HBOppuWoOgjAtBuaS9O"
+    service_account_file = r""
+    folder_id = ""
     start_time = time.time()
     analysis_results = learner_expectation_course_outcome_analysis(service_account_file, folder_id)
     print("\n--- Analysis Results ---")
@@ -445,4 +445,5 @@ if __name__ == "__main__":
     output_filename = "Learner_expectation_output_sample.json"
     with open(output_filename, 'w') as f:
         json.dump(analysis_results, f, indent=4)
+
     print(f"\nAnalysis results saved to {output_filename}")
