@@ -1235,7 +1235,7 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                                 "To Module": module_pair_name.split(' to ')[1],
                                 "Embedding Score": round(intermediate_data[i]['embedding_score'], 4),
                                 "Gemini Semantic Score": round(intermediate_data[i]['gemini_semantic_score'], 4),
-                                "Score": scaled_score,
+                                "Final Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp
                             })
@@ -1283,9 +1283,14 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                     instructor_exp = self.call_gemini(instructor_prompt_text) if self.gemini_model else "Explanation not available."
 
                     results['Course Module Alignment'].update({
+                        "Embedding Component": round(float(intermediate_data["final_score_components"]["embedding_component"]) / 0.4, 4),
+                        "Gemini Component": round(float(intermediate_data["final_score_components"]["gemini_component"]) / 0.4, 4),
+                        "Keyword Coverage Component": round(float(intermediate_data["final_score_components"]["keyword_coverage_component"]) / 0.2, 4),
+                        "Overall Score": scaled_score,
                         "Learner Perspective Assessment": user_exp,
                         "Instructor Feedback": instructor_exp
                     })
+
 
                 elif name == 'metric3':
                     original_scores, intermediate_data = future.result()
@@ -1315,7 +1320,7 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                             results['Intra Module Content Flow']['modules'].append({
                                 "Module Name": module_name,
                                 "Average Sequential Similarity": round(np.mean(intermediate_data[i]['sequential_similarities']) if intermediate_data[i]['sequential_similarities'] else 0.0, 4),
-                                "Score": scaled_score,
+                                "Final Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp
                             })
@@ -1369,10 +1374,9 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
 
                             results['Objective Content Alignment']['modules'].append({
                                 "Module Name": module_name,
-                                "Score": scaled_score,
                                 "Embedding Score": round(intermediate_data[i]['embedding_score'], 4),
                                 "Gemini Semantic Score": round(intermediate_data[i]['gemini_semantic_score'], 4),
-                                "Score": scaled_score,
+                                "Final Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp,
                             })
@@ -1432,7 +1436,7 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                                 "Learning Objective Coherence": round(intermediate_data[i]['lo_coherence_score'], 4),
                                 "Content Coherence": round(intermediate_data[i]['content_coherence_score'], 4),
                                 "Module Name Alignment": round(intermediate_data[i]['name_alignment_score'], 4),
-                                "Score": scaled_score,
+                                "Final Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp,
                             })
