@@ -97,7 +97,7 @@ class CourseStructureAnalyzer:
         similarity_matrix = cosine_similarity(embeddings1, embeddings2)
 
         max_similarities = similarity_matrix.max(axis=1)
-        return np.mean(max_similarities)
+        return float(np.mean(max_similarities)) # Cast to float
 
     def gemini_semantic_analysis(self, text1, text2, analysis_type):
         """Use Gemini for advanced semantic analysis"""
@@ -157,14 +157,14 @@ class CourseStructureAnalyzer:
             )
 
             # Combine scores (weighted average)
-            combined_score = 0.7 * embedding_score + 0.3 * gemini_score
+            combined_score = float(0.7 * embedding_score + 0.3 * gemini_score) # Cast to float
             progression_scores.append(combined_score)
 
             # Capture intermediate data
             intermediate_data.append({
                 "module_pair": f"{current_module_name} to {next_module_name}",
-                "embedding_score": embedding_score,
-                "gemini_semantic_score": gemini_score
+                "embedding_score": float(embedding_score),
+                "gemini_semantic_score": float(gemini_score)
             })
 
         return progression_scores, intermediate_data
@@ -367,7 +367,7 @@ Output Requirements:
         })
 
         # Final score: weighted average
-        final_score = (0.4 * embedding_score + 0.4 * gemini_score + 0.2 * coverage_score)
+        final_score = float(0.4 * embedding_score + 0.4 * gemini_score + 0.2 * coverage_score) # Cast to float
         intermediate_data["final_score_components"] = {
             "embedding_component": f"{0.4 * embedding_score:.2f}",
             "gemini_component": f"{0.4 * gemini_score:.2f}",
@@ -405,14 +405,14 @@ Output Requirements:
                 similarity = self.calculate_semantic_similarity(
                     [syllabus[i]], [syllabus[i + 1]]
                 )
-                sequential_similarities.append(similarity)
+                sequential_similarities.append(float(similarity)) # Cast to float
 
-            avg_flow = np.mean(sequential_similarities)
+            avg_flow = float(np.mean(sequential_similarities)) # Cast to float
             flow_scores.append(avg_flow)
             intermediate_data.append({
                 "module_name": module_name,
                 "syllabus_items": syllabus,
-                "sequential_similarities": [float(s) for s in sequential_similarities] # Convert to float for JSON
+                "sequential_similarities": sequential_similarities # Already cast above
             })
         return flow_scores, intermediate_data
 
@@ -447,12 +447,12 @@ Output Requirements:
                 "objective-content alignment"
             )
 
-            combined_score = 0.65 * embedding_score + 0.35 * gemini_score
+            combined_score = float(0.65 * embedding_score + 0.35 * gemini_score) # Cast to float
             alignment_scores.append(combined_score)
             intermediate_data.append({
                 "module_name": module_name,
-                "embedding_score": embedding_score,
-                "gemini_semantic_score": gemini_score
+                "embedding_score": float(embedding_score),
+                "gemini_semantic_score": float(gemini_score)
             })
 
         return alignment_scores, intermediate_data
@@ -480,22 +480,25 @@ Output Requirements:
 
 
             # Weighted unity score
-            unity_score = 0.4 * lo_coherence + 0.4 * content_coherence + 0.2 * name_alignment
+            unity_score = float(0.4 * lo_coherence + 0.4 * content_coherence + 0.2 * name_alignment) # Cast to float
             unity_scores.append(unity_score)
             intermediate_data.append({
                 "module_name": module_name,
-                "lo_coherence_score": lo_coherence,
-                "content_coherence_score": content_coherence,
-                "name_alignment_score": name_alignment
+                "lo_coherence_score": float(lo_coherence),
+                "content_coherence_score": float(content_coherence),
+                "name_alignment_score": float(name_alignment)
             })
         return unity_scores, intermediate_data
 
     # Define the prompt functions as methods within the class
-    def prompt_inter_module_progression_coherence(self, intermediate_gemini_semantic_score, intermediate_embedding_score, module_pair, final_rating):
+    def prompt_inter_module_progression_coherence(self, intermediate_gemini_semantic_score, intermediate_embedding_score, final_rating, module_pair=None):
         """
         Generates tailored prompts for the "Inter-Module Progression Coherence" metric.
+        Handles both module-level and course-level prompts.
         """
-        user_prompt = f"""
+        if module_pair:
+            # Module-level prompt
+            user_prompt = f"""
 Persona: You are simulating a learner's direct experience and perception of a module's quality. Your goal is to provide a personal reflection, as if you were the student who just completed the module.
 
 This reflection focuses on how effectively the module's interconnected elements (goals, content, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience. Your output should directly convey feelings and observations about the module's effectiveness.
@@ -530,7 +533,7 @@ This reflection focuses on how effectively the module's interconnected elements 
 Given the underlying quality observations: Inter-Module Progression Coherence: {final_rating}, Semantic Coherence: {intermediate_gemini_semantic_score:.3f}, and Conceptual Closeness: {intermediate_embedding_score:.3f}, write a short learner-style reflection on the transition from **'{module_pair.split(' to ')[0]}'** to **'{module_pair.split(' to ')[1]}'**. Simulate how a learner experienced engaging with the content and structure between these two modules. The last sentence should be a concise summary of the overall impression of the transition's effectiveness from a learner's perspective, implicitly offering a key takeaway.
 """
 
-        instructor_prompt = f"""
+            instructor_prompt = f"""
 You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on this module's design and its overall pedagogical effectiveness. Your insights aim to optimize the module for maximum learning impact and seamless integration within the broader curriculum.
 
 This assessment serves to validate the module's syllabus by systematically dissecting its internal consistency, its fidelity in delivering advertised learning outcomes, and its strategic contribution to the overall course structure. My aim is to pinpoint specific design strengths within the syllabus and identify concrete, actionable areas for improvement that enhance instructional robustness and student success, directly from a validation perspective.
@@ -564,6 +567,76 @@ This assessment serves to validate the module's syllabus by systematically disse
 **Prompt Instruction:**
 Given the underlying quality observations: Inter-Module Progression Coherence: {final_rating}, Semantic Coherence: {intermediate_gemini_semantic_score:.3f}, and Conceptual Closeness: {intermediate_embedding_score:.3f}, deliver a precise pedagogical assessment and concrete, actionable recommendations for the transition from **'{module_pair.split(' to ')[0]}'** to **'{module_pair.split(' to ')[1]}'**. Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for module optimization.
 """
+        else:
+            # Course-level prompt
+            user_prompt = f"""
+Persona: You are simulating a learner's direct experience and perception of a course's overall quality. Your goal is to provide a personal reflection, as if you were the student who just completed the entire course.
+
+This reflection focuses on how effectively the course's interconnected elements (overall goals, content across modules, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience. The output should directly convey feelings and observations about the course's effectiveness as a whole.
+
+**Evaluation Methodology (How this experience is being assessed behind the scenes):**
+
+* **Course Progression Coherence (Score Range: 1-5):**
+    * **Definition:** This metric provides a holistic assessment of how smoothly the entire course progresses from one module to the next, ensuring a logical and understandable flow of learning across the curriculum.
+    * **Scoring:** 1 (disjointed or confusing progression that hinders learning) to 5 (a seamless and intuitive learning journey from start to finish).
+
+* **Semantic Coherence (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This indicates the logical flow and conceptual coherence between all modules, going beyond just keyword matching to assess the overall pedagogical progression of the course.
+    * **Scoring:** 0.0 (no semantic relationship) to 1.0 (strong semantic alignment).
+
+* **Conceptual Closeness (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This measures how conceptually close the learning objectives are from one module to the next, averaged across the entire course.
+    * **Scoring:** 0.0 (distant concepts) to 1.0 (very close concepts).
+
+**Underlying Quality Observations (These influence my perceived experience, but I should NOT state these values or their technical names explicitly in my reflection):**
+- Course Progression Coherence: {final_rating}/5
+- Semantic Coherence (Average): {intermediate_gemini_semantic_score:.3f}/1.0
+- Conceptual Closeness (Average): {intermediate_embedding_score:.3f}/1.0
+
+**Expected Response Guidelines:**
+* **Perspective:** From the personal, simulated point of view of the learner, reflecting on the *entire course*.
+* **Tone:** Reflective, authentic, and concise. **Strictly use passive voice or objective statements; avoid any first-person pronouns (I, my, me).**
+* **Style:** 2–4 sentences, describing the personal experience of the *course's* progression.
+* **Focus:** Perceived clarity, logical flow, and ease of connecting ideas across all modules, all based on the underlying data.
+* **Avoid:** Technical jargon, generic introductions, or directly mentioning the metric names or numerical scores (e.g., "the course scored high on alignment").
+
+**Prompt Instruction:**
+Given the underlying quality observations: Course Progression Coherence: {final_rating}, Semantic Coherence (Average): {intermediate_gemini_semantic_score:.3f}, and Conceptual Closeness (Average): {intermediate_embedding_score:.3f}, write a short learner-style reflection on the overall progression of the course. Simulate how a learner experienced the flow of content and structure from the beginning to the end of the course. The last sentence should be a concise summary of the overall impression of the course's progression effectiveness from a learner's perspective, implicitly offering a key takeaway.
+"""
+            instructor_prompt = f"""
+You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on the *overall course's* design and its pedagogical effectiveness across all modules. Your insights aim to optimize the course for maximum learning impact and seamless integration of its components.
+
+This assessment serves to validate the *entire course's* structure by systematically dissecting its internal consistency, its fidelity in delivering advertised learning outcomes, and its strategic contribution of all modules to the overall course structure. The aim is to pinpoint specific design strengths within the overall course and identify concrete, actionable areas for improvement that enhance instructional robustness and student success, directly from a validation perspective.
+
+**Evaluation Metrics & Scoring Principles (for your understanding):**
+
+* **Course Progression Coherence (Score Range: 1-5):**
+    * **Definition:** This metric provides a holistic assessment of the design quality of transitions between *all* consecutive modules, focusing on the logical and conceptual scaffolding provided to learners throughout the course.
+    * **Scoring:** 1 (disjointed or confusing progression requiring significant learner effort) to 5 (seamless, intuitively structured progression that minimizes cognitive load across the entire curriculum).
+
+* **Semantic Coherence (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This advanced evaluation provides deep insights into the pedagogical flow and conceptual scaffolding between all modules, precisely identifying potential gaps, redundancies, or abrupt shifts at a course level.
+    * **Scoring:** 0.0 (no discernible pedagogical relationship) to 1.0 (superior, deliberately structured progression).
+
+* **Conceptual Closeness (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This metric quantifies the average semantic overlap between consecutive modules' learning objectives across the entire course, directly indicating the overall conceptual distance.
+    * **Scoring:** 0.0 (minimal conceptual overlap) to 1.0 (high conceptual overlap, critical for minimizing learner cognitive load and enhancing engagement).
+
+**Underlying Quality Observations (These are the precise analytical scores informing my expert recommendations; DO NOT state these values or their technical names explicitly in your feedback):**
+- Course Progression Coherence: {final_rating}/5
+- Semantic Coherence (Average): {intermediate_gemini_semantic_score:.3f}/1.0
+- Conceptual Closeness (Average): {intermediate_embedding_score:.3f}/1.0
+
+**Expected Response Guidelines:**
+* **Perspective:** From the professional, data-driven point of view as a pedagogical consultant, directly addressing the instructor about the *overall course*.
+* **Tone:** Formal, analytical, authoritative, constructive, and highly action-oriented.
+* **Style:** Deliver a highly precise and concise assessment within 2–4 sentences, focusing on actionable recommendations for the *entire course*. Avoid generic introductions.
+* **Focus:** Identifying clear design strengths and offering concrete, strategic improvements to the *course's* pedagogical efficacy, leveraging the underlying data.
+* **Avoid:** Technical jargon not universally understood in pedagogical circles, or directly mentioning the metric names or numerical scores.
+
+**Prompt Instruction:**
+Given the underlying quality observations: Course Progression Coherence: {final_rating}, Semantic Coherence (Average): {intermediate_gemini_semantic_score:.3f}, and Conceptual Closeness (Average): {intermediate_embedding_score:.3f}, deliver a precise pedagogical assessment and concrete, actionable recommendations for the overall Course Progression Coherence. Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths of the *entire course*. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for course optimization.
+"""
         return user_prompt, instructor_prompt
 
     def prompt_course_module_alignment(self, intermediate_embedding_component_raw, intermediate_gemini_component_raw, intermediate_keyword_coverage_component_raw, final_rating):
@@ -573,7 +646,7 @@ Given the underlying quality observations: Inter-Module Progression Coherence: {
         user_prompt = f"""
 Persona: You are simulating a learner's direct experience and perception of a course's overall quality. Your goal is to provide a personal reflection, as if you were the student who just completed the entire course.
 
-This reflection focuses on how effectively the course's interconnected elements (overall goals, content across modules, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience. The output should directly convey feelings and observations about the course's effectiveness as a whole.
+This reflection focuses on how effectively the course's interconnected elements (overall goals, content across modules, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience for me. My output should directly convey my feelings and observations about the course's effectiveness as a whole.
 
 **Evaluation Methodology (How this experience is being assessed behind the scenes):**
 
@@ -650,11 +723,14 @@ Given the underlying quality observations: Course-Module Alignment: {final_ratin
 """
         return user_prompt, instructor_prompt
 
-    def prompt_intra_module_content_flow(self, intermediate_sequential_similarities_avg, module_name, final_rating):
+    def prompt_intra_module_content_flow(self, intermediate_sequential_similarities_avg, module_name=None, final_rating=None):
         """
         Generates tailored prompts for the "Intra-Module Content Flow" metric.
+        Handles both module-level and course-level prompts.
         """
-        user_prompt = f"""
+        if module_name:
+            # Module-level prompt
+            user_prompt = f"""
 Persona: You are simulating a learner's direct experience and perception of a module's quality. Your goal is to provide a personal reflection, as if you were the student who just completed the module.
 
 This reflection focuses on how effectively the module's interconnected elements (goals, content, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience for me. My output should directly convey my feelings and observations about the module's effectiveness.
@@ -683,7 +759,7 @@ This reflection focuses on how effectively the module's interconnected elements 
 **Prompt Instruction:**
 Given the underlying quality observations: Intra-Module Content Flow: {final_rating} and Sequential Similarities (average): {intermediate_sequential_similarities_avg:.3f}, write a short learner-style reflection on the content flow within the module '{module_name}'. Simulate how a learner experienced engaging with the module's content structure. The last sentence should be a concise summary of the overall impression of the module's content flow effectiveness from a learner's perspective, implicitly offering a key takeaway.
 """
-        instructor_prompt = f"""
+            instructor_prompt = f"""
 You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on this module's design and its overall pedagogical effectiveness. Your insights aim to optimize the module for maximum learning impact and seamless integration within the broader curriculum.
 
 This assessment serves to validate the module's syllabus by systematically dissecting its internal consistency, its fidelity in delivering advertised learning outcomes, and its strategic contribution to the overall course structure. My aim is to pinpoint specific design strengths within the syllabus and identify concrete, actionable areas for improvement that enhance instructional robustness and student success, directly from a validation perspective.
@@ -712,13 +788,76 @@ This assessment serves to validate the module's syllabus by systematically disse
 **Prompt Instruction:**
 Given the underlying quality observations: Intra-Module Content Flow: {final_rating} and Sequential Similarities (average): {intermediate_sequential_similarities_avg:.3f}, deliver a precise pedagogical assessment and concrete, actionable recommendations for the content flow within the module '{module_name}'. Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for module optimization.
 """
+        else:
+            # Course-level prompt
+            user_prompt = f"""
+Persona: You are simulating a learner's direct experience and perception of a course's overall quality. Your goal is to provide a personal reflection, as if you were the student who just completed the entire course.
+
+This reflection focuses on how effectively the course's interconnected elements (goals, content, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience for me. My output should directly convey my feelings and observations about the course's effectiveness as a whole.
+
+**Evaluation Methodology (How this experience is being assessed behind the scenes):**
+
+* **Course Content Flow (Score Range: 1-5):**
+    * **Definition:** This metric holistically assesses the logical progression and coherence of topics and content *across all modules* of the entire course.
+    * **Scoring:** 1 (disorganized or disjointed content flow) to 5 (smooth, logical, and easy-to-follow content progression).
+
+* **Sequential Similarities (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This measures the average conceptual similarity between consecutive syllabus items across the entire course, indicating how smoothly one topic leads to the next.
+    * **Scoring:** 0.0 (no conceptual similarity) to 1.0 (high conceptual similarity).
+
+**Underlying Quality Observations (These influence my perceived experience, but I should NOT state these values or their technical names explicitly in my reflection):**
+- Course Content Flow: {final_rating}/5
+- Sequential Similarities (average): {intermediate_sequential_similarities_avg:.3f}
+
+**Expected Response Guidelines:**
+* **Perspective:** From the personal, simulated point of view of the learner, reflecting on the *entire course*.
+* **Tone:** Reflective, authentic, and concise. **Strictly use passive voice or objective statements; avoid any first-person pronouns (I, my, me).**
+* **Style:** 2–4 sentences, describing the personal experience of the *course's* content flow.
+* **Focus:** Perceived clarity, logical flow, and ease of understanding the progression of topics across all modules, all based on the underlying data.
+* **Avoid:** Technical jargon, generic introductions, or directly mentioning the metric names or numerical scores (e.g., "the course scored high on flow").
+
+**Prompt Instruction:**
+Given the underlying quality observations: Course Content Flow: {final_rating} and Sequential Similarities (average): {intermediate_sequential_similarities_avg:.3f}, write a short learner-style reflection on the overall content flow of the course. Simulate how a learner experienced engaging with the content structure from the beginning to the end. The last sentence should be a concise summary of the overall impression of the course's content flow effectiveness from a learner's perspective, implicitly offering a key takeaway.
+"""
+            instructor_prompt = f"""
+You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on the *overall course's* design and its pedagogical effectiveness across all modules. Your insights aim to optimize the course for maximum learning impact and seamless integration of its components.
+
+This assessment serves to validate the *entire course's* structure by systematically dissecting its internal consistency, its fidelity in delivering advertised learning outcomes, and its strategic contribution of all modules to the overall course structure. The aim is to pinpoint specific design strengths within the overall course and identify concrete, actionable areas for improvement that enhance instructional robustness and student success, directly from a validation perspective.
+
+**Evaluation Metrics & Scoring Principles (for your understanding):**
+
+* **Course Content Flow (Score Range: 1-5):**
+    * **Definition:** This metric rigorously assesses the internal logical coherence and sequential progression of topics and activities across *the entire course's curriculum*.
+    * **Scoring:** 1 (disorganized, confusing, or contradictory content flow) to 5 (exceptionally smooth, intuitive, and pedagogically sound content progression).
+
+* **Sequential Similarities (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This quantifies the average conceptual continuity between consecutive syllabus items across the entire course, serving as a direct indicator of the deliberate scaffolding or abrupt shifts in topic.
+    * **Scoring:** 0.0 (significant conceptual discontinuity) to 1.0 (seamless conceptual transition).
+
+**Underlying Quality Observations (These are the precise analytical scores informing my expert recommendations; DO NOT state these values or their technical names explicitly in your feedback):**
+- Course Content Flow: {final_rating}/5
+- Sequential Similarities (average): {intermediate_sequential_similarities_avg:.3f}
+
+**Expected Response Guidelines:**
+* **Perspective:** From the professional, data-driven point of view as a pedagogical consultant, directly addressing the instructor about the *overall course*.
+* **Tone:** Formal, analytical, authoritative, constructive, and highly action-oriented.
+* **Style:** Deliver a highly precise and concise assessment within 2–4 sentences, focusing on actionable recommendations for the *entire course*. Avoid generic introductions.
+* **Focus:** Identifying clear design strengths and offering concrete, strategic improvements to the *course's* pedagogical efficacy, leveraging the underlying data.
+* **Avoid:** Technical jargon not universally understood in pedagogical circles, or directly mentioning the metric names or numerical scores.
+
+**Prompt Instruction:**
+Given the underlying quality observations: Course Content Flow: {final_rating} and Sequential Similarities (average): {intermediate_sequential_similarities_avg:.3f}, deliver a precise pedagogical assessment and concrete, actionable recommendations for the overall content flow of the course. Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths of the *entire course*. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for course optimization.
+"""
         return user_prompt, instructor_prompt
 
-    def prompt_objective_content_alignment(self, intermediate_embedding_score, intermediate_gemini_semantic_score, module_name, final_rating):
+    def prompt_objective_content_alignment(self, intermediate_embedding_score, intermediate_gemini_semantic_score, module_name=None, final_rating=None):
         """
         Generates tailored prompts for the "Objective-Content Alignment" metric.
+        Handles both module-level and course-level prompts.
         """
-        user_prompt = f"""
+        if module_name:
+            # Module-level prompt
+            user_prompt = f"""
 Persona: You are simulating a learner's direct experience and perception of a module's quality. Your goal is to provide a personal reflection, as if you were the student who just completed the module.
 
 This reflection focuses on how effectively the module's interconnected elements (goals, content, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience for me. My output should directly convey my feelings and observations about the module's effectiveness.
@@ -752,7 +891,7 @@ This reflection focuses on how effectively the module's interconnected elements 
 **Prompt Instruction:**
 Given the underlying quality observations: Objective-Content Alignment: {final_rating}, Conceptual Support: {intermediate_embedding_score:.3f}, and Semantic Cohesion: {intermediate_gemini_semantic_score:.3f}, write a short learner-style reflection on the objective-content alignment within the module '{module_name}'. Simulate how a learner experienced the connection between what was promised to be learned and what was actually provided. The last sentence should be a concise summary of the overall impression of the module's effectiveness from a learner's perspective, implicitly offering a key takeaway.
 """
-        instructor_prompt = f"""
+            instructor_prompt = f"""
 You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on this module's design and its overall pedagogical effectiveness. Your insights aim to optimize the module for maximum learning impact and seamless integration within the broader curriculum.
 
 This assessment serves to validate the module's syllabus by systematically dissecting its internal consistency, its fidelity in delivering advertised learning outcomes, and its strategic contribution to the overall course structure. My aim is to pinpoint specific design strengths within the syllabus and identify concrete, actionable areas for improvement that enhance instructional robustness and student success, directly from a validation perspective.
@@ -786,13 +925,86 @@ This assessment serves to validate the module's syllabus by systematically disse
 **Prompt Instruction:**
 Given the underlying quality observations: Objective-Content Alignment: {final_rating}, Conceptual Support: {intermediate_embedding_score:.3f}, and Semantic Cohesion: {intermediate_gemini_semantic_score:.3f}, deliver a precise pedagogical assessment and concrete, actionable recommendations for the objective-content alignment within the module '{module_name}'. Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for module optimization.
 """
+        else:
+            # Course-level prompt
+            user_prompt = f"""
+Persona: You are simulating a learner's direct experience and perception of a course's overall quality. Your goal is to provide a personal reflection, as if you were the student who just completed the entire course.
+
+This reflection focuses on how effectively the course's interconnected elements (goals, content, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience for me. My output should directly convey my feelings and observations about the course's effectiveness as a whole.
+
+**Evaluation Methodology (How my experience is being assessed behind the scenes):**
+
+* **Course Objective-Content Alignment (Score Range: 1-5):**
+    * **Definition:** This metric provides a holistic assessment of how precisely the course's learning objectives across all modules were directly corresponded to and comprehensively covered by the course's content.
+    * **Scoring:** 1 (significant disconnects or content deficiencies) to 5 (perfect congruence and comprehensive delivery across all modules).
+
+* **Conceptual Support (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This evaluates how well the course's aggregated syllabus content conceptually supports all its stated learning objectives.
+    * **Scoring:** 0.0 (minimal support) to 1.0 (strong conceptual support).
+
+* **Semantic Cohesion (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This advanced evaluation assesses the deeper semantic coherence between all course objectives and all syllabus content, ensuring the content meaningfully addresses the learning goals across the entire curriculum.
+    * **Scoring:** 0.0 (no semantic cohesion) to 1.0 (strong semantic cohesion).
+
+**Underlying Quality Observations (These influence my perceived experience, but I should NOT state these values or their technical names explicitly in my reflection):**
+- Course Objective-Content Alignment: {final_rating}/5
+- Conceptual Support (Average): {intermediate_embedding_score:.3f}/1.0
+- Semantic Cohesion (Average): {intermediate_gemini_semantic_score:.3f}/1.0
+
+**Expected Response Guidelines:**
+* **Perspective:** From the personal, simulated point of view of the learner, reflecting on the *entire course*.
+* **Tone:** Reflective, authentic, and concise. **Strictly use passive voice or objective statements; avoid any first-person pronouns (I, my, me).**
+* **Style:** 2–4 sentences, describing the personal experience of the *course's* alignment.
+* **Focus:** Perceived clarity, intellectual engagement, and relevance of content to learning objectives across all modules, all based on the underlying data.
+* **Avoid:** Technical jargon, generic introductions, or directly mentioning the metric names or numerical scores (e.g., "the course scored high on alignment").
+
+**Prompt Instruction:**
+Given the underlying quality observations: Course Objective-Content Alignment: {final_rating}, Conceptual Support (Average): {intermediate_embedding_score:.3f}, and Semantic Cohesion (Average): {intermediate_gemini_semantic_score:.3f}, write a short learner-style reflection on the overall objective-content alignment of the course. Simulate how a learner experienced the connection between what was promised to be learned and what was actually provided. The last sentence should be a concise summary of the overall impression of the course's effectiveness from a learner's perspective, implicitly offering a key takeaway.
+"""
+            instructor_prompt = f"""
+You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on the *overall course's* design and its pedagogical effectiveness across all modules. Your insights aim to optimize the course for maximum learning impact and seamless integration of its components.
+
+This assessment serves to validate the *entire course's* structure by systematically dissecting its internal consistency, its fidelity in delivering advertised learning outcomes, and its strategic contribution of all modules to the overall course structure. The aim is to pinpoint specific design strengths within the overall course and identify concrete, actionable areas for improvement that enhance instructional robustness and student success, directly from a validation perspective.
+
+**Evaluation Metrics & Scoring Principles (for your understanding):**
+
+* **Course Objective-Content Alignment (Score Range: 1-5):**
+    * **Definition:** This metric quantifies how precisely all of the course's stated learning objectives across all modules correspond to and are comprehensively covered by the course's aggregated content.
+    * **Scoring:** 1 (significant disconnects or content deficiencies relative to objectives) to 5 (perfect congruence; all objectives are fully supported, clearly addressed, and content is optimally aligned).
+
+* **Conceptual Support (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This component measures the average direct semantic support that all module syllabi provide for their stated learning objectives across the entire course.
+    * **Scoring:** 0.0 (minimal conceptual support) to 1.0 (strong, evident conceptual support).
+
+* **Semantic Cohesion (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This advanced evaluation assesses the deeper, implicit semantic coherence between all course objectives and all syllabus content, ensuring that the content not only covers but also meaningfully addresses the intended learning outcomes.
+    * **Scoring:** 0.0 (lack of meaningful semantic cohesion) to 1.0 (strong, intentional semantic cohesion).
+
+**Underlying Quality Observations (These are the precise analytical scores informing my expert recommendations; DO NOT state these values or their technical names explicitly in your feedback):**
+- Course Objective-Content Alignment: {final_rating}/5
+- Conceptual Support (Average): {intermediate_embedding_score:.3f}/1.0
+- Semantic Cohesion (Average): {intermediate_gemini_semantic_score:.3f}/1.0
+
+**Expected Response Guidelines:**
+* **Perspective:** From the professional, data-driven point of view as a pedagogical consultant, directly addressing the instructor about the *overall course*.
+* **Tone:** Formal, analytical, authoritative, constructive, and highly action-oriented.
+* **Style:** Deliver a highly precise and concise assessment within 2–4 sentences, focusing on actionable recommendations for the *entire course*. Avoid generic introductions.
+* **Focus:** Identifying clear design strengths and offering concrete, strategic improvements to the *course's* pedagogical efficacy, leveraging the underlying data.
+* **Avoid:** Technical jargon not universally understood in pedagogical circles, or directly mentioning the metric names or numerical scores.
+
+**Prompt Instruction:**
+Given the underlying quality observations: Course Objective-Content Alignment: {final_rating}, Conceptual Support (Average): {intermediate_embedding_score:.3f}, and Semantic Cohesion (Average): {intermediate_gemini_semantic_score:.3f}, deliver a precise pedagogical assessment and concrete, actionable recommendations for the overall objective-content alignment of the course. Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths of the *entire course*. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for course optimization.
+"""
         return user_prompt, instructor_prompt
 
-    def prompt_module_learning_unity(self, intermediate_lo_coherence_score, intermediate_content_coherence_score, intermediate_name_alignment_score, module_name, final_rating):
+    def prompt_module_learning_unity(self, intermediate_lo_coherence_score, intermediate_content_coherence_score, intermediate_name_alignment_score, module_name=None, final_rating=None):
         """
         Generates tailored prompts for the "Module Learning Unity" metric.
+        Handles both module-level and course-level prompts.
         """
-        user_prompt = f"""
+        if module_name:
+            # Module-level prompt
+            user_prompt = f"""
 Persona: You are simulating a learner's direct experience and perception of a module's quality. Your goal is to provide a personal reflection, as if you were the student who just completed the module.
 
 This reflection focuses on how effectively the module's interconnected elements (goals, content, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience for me. My output should directly convey my feelings and observations about the module's effectiveness.
@@ -831,7 +1043,7 @@ This reflection focuses on how effectively the module's interconnected elements 
 **Prompt Instruction:**
 Given the underlying quality observations: Module Learning Unity: {final_rating}, Learning Objective Coherence: {intermediate_lo_coherence_score:.3f}, Content Coherence: {intermediate_content_coherence_score:.3f}, and Module Name Alignment: {intermediate_name_alignment_score:.3f}, write a short learner-style reflection on the overall internal unity of the module '{module_name}'. Simulate how a learner experienced the module's cohesiveness and focus. The last sentence should be a concise summary of the overall impression of the module's effectiveness from a learner's perspective, implicitly offering a key takeaway
 """
-        instructor_prompt = f"""
+            instructor_prompt = f"""
 You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on this module's design and its overall pedagogical effectiveness. Your insights aim to optimize the module for maximum learning impact and seamless integration within the broader curriculum.
 
 This assessment serves to validate the module's syllabus by systematically dissecting its internal consistency, its fidelity in delivering advertised learning outcomes, and its strategic contribution to the overall course structure. My aim is to pinpoint specific design strengths within the syllabus and identify concrete, actionable areas for improvement that enhance instructional robustness and student success, directly from a validation perspective.
@@ -870,6 +1082,86 @@ This assessment serves to validate the module's syllabus by systematically disse
 **Prompt Instruction:**
 Given the underlying quality observations: Module Learning Unity: {final_rating}, Learning Objective Coherence: {intermediate_lo_coherence_score:.3f}, Content Coherence: {intermediate_content_coherence_score:.3f}, and Module Name Alignment: {intermediate_name_alignment_score:.3f}, deliver a precise pedagogical assessment and concrete, actionable recommendations for the internal unity of the module '{module_name}'. Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for module optimization.
 """
+        else:
+            # Course-level prompt
+            user_prompt = f"""
+Persona: You are simulating a learner's direct experience and perception of a course's overall quality. Your goal is to provide a personal reflection, as if you were the student who just completed the entire course.
+
+This reflection focuses on how effectively the course's interconnected elements (goals, content, intellectual demands) came together to deliver a cohesive, accessible, and ultimately enriching learning experience for me. My output should directly convey my feelings and observations about the course's effectiveness as a whole.
+
+**Evaluation Methodology (How my experience is being assessed behind the scenes):**
+
+* **Course Learning Unity (Score Range: 1-5):**
+    * **Definition:** This metric holistically evaluates the overall internal consistency and thematic coherence across all modules of the course, ensuring all components work together seamlessly.
+    * **Scoring:** 1 (disjointed components that hinder learning) to 5 (perfectly unified and cohesive learning experience from start to finish).
+
+* **Learning Objective Coherence (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This assesses how well the individual learning objectives across all modules relate to and support each other, forming a clear and unified set of course goals.
+    * **Scoring:** 0.0 (unrelated objectives) to 1.0 (highly coherent objectives).
+
+* **Content Coherence (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This measures how well the various content items and topics within all module syllabi relate to each other, ensuring a unified learning experience across the course.
+    * **Scoring:** 0.0 (disjointed content) to 1.0 (highly cohesive content).
+
+* **Module Name Alignment (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This evaluates, on average, how well each module's name accurately reflects and encompasses its learning objectives and syllabus content.
+    * **Scoring:** 0.0 (misleading names) to 1.0 (perfectly representative names).
+
+**Underlying Quality Observations (These influence my perceived experience, but I should NOT state these values or their technical names explicitly in my reflection):**
+- Course Learning Unity: {final_rating}/5
+- Learning Objective Coherence (Average): {intermediate_lo_coherence_score:.3f}/1.0
+- Content Coherence (Average): {intermediate_content_coherence_score:.3f}/1.0
+- Module Name Alignment (Average): {intermediate_name_alignment_score:.3f}/1.0
+
+**Expected Response Guidelines:**
+* **Perspective:** From the personal, simulated point of view of the learner, reflecting on the *entire course*.
+* **Tone:** Reflective, authentic, and concise. **Strictly use passive voice or objective statements; avoid any first-person pronouns (I, my, me).**
+* **Style:** 2–4 sentences, describing the personal experience of the *course's* unity.
+* **Focus:** Perceived clarity, intellectual engagement, and relevance of content, all contributing to a unified learning experience across the course, based on the underlying data.
+* **Avoid:** Technical jargon, generic introductions, or directly mentioning the metric names or numerical scores (e.g., "the course scored high on unity").
+
+**Prompt Instruction:**
+Given the underlying quality observations: Course Learning Unity: {final_rating}, Learning Objective Coherence (Average): {intermediate_lo_coherence_score:.3f}, Content Coherence (Average): {intermediate_content_coherence_score:.3f}, and Module Name Alignment (Average): {intermediate_name_alignment_score:.3f}, write a short learner-style reflection on the overall internal unity of the course. Simulate how a learner experienced the course's cohesiveness and focus from start to finish. The last sentence should be a concise summary of the overall impression of the course's effectiveness from a learner's perspective, implicitly offering a key takeaway
+"""
+            instructor_prompt = f"""
+You are an expert pedagogical consultant and curriculum design specialist. Your core function is to provide the instructor with incisive, data-driven feedback on the *overall course's* design and its pedagogical effectiveness across all modules. Your insights aim to optimize the course for maximum learning impact and seamless integration of its components.
+
+This assessment serves to validate the *entire course's* structure by systematically dissecting its internal consistency, its fidelity in delivering advertised learning outcomes, and its strategic contribution of all modules to the overall course structure. The aim is to pinpoint specific design strengths within the overall course and identify concrete, actionable areas for improvement that enhance instructional robustness and student success, directly from a validation perspective.
+
+**Evaluation Metrics & Scoring Principles (for your understanding):**
+
+* **Course Learning Unity (Score Range: 1-5):**
+    * **Definition:** This metric holistically evaluates the internal consistency and thematic coherence of all components across the entire course (learning objectives, syllabus content, module titles).
+    * **Scoring:** 1 (disjointed or contradictory components undermining learning) to 5 (exceptionally unified, cohesive, and clearly focused learning design).
+
+* **Learning Objective Coherence (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This quantifies the average internal semantic consistency among all module's learning objectives, ensuring they form a singular, focused set of instructional goals for the course.
+    * **Scoring:** 0.0 (disparate objectives) to 1.0 (highly unified and complementary objectives).
+
+* **Content Coherence (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This measures the average internal semantic consistency among all module's syllabus items, ensuring that all content contributes to a coherent thematic focus for the entire course.
+    * **Scoring:** 0.0 (disjointed content topics) to 1.0 (highly cohesive and interconnected content).
+
+* **Module Name Alignment (Intermediate Score Range: 0.0-1.0):**
+    * **Definition:** This evaluates the average precision with which each module's title accurately encapsulates and represents its learning objectives and syllabus content across the course.
+    * **Scoring:** 0.0 (misleading or vague titles) to 1.0 (perfectly representative and informative titles).
+
+**Underlying Quality Observations (These are the precise analytical scores informing my expert recommendations; DO NOT state these values or their technical names explicitly in your feedback):**
+- Course Learning Unity: {final_rating}/5
+- Learning Objective Coherence (Average): {intermediate_lo_coherence_score:.3f}/1.0
+- Content Coherence (Average): {intermediate_content_coherence_score:.3f}/1.0
+- Module Name Alignment (Average): {intermediate_name_alignment_score:.3f}/1.0
+
+**Expected Response Guidelines:**
+* **Perspective:** From the professional, data-driven point of view as a pedagogical consultant, directly addressing the instructor about the *overall course*.
+* **Tone:** Formal, analytical, authoritative, constructive, and highly action-oriented.
+* **Style:** Deliver a highly precise and concise assessment within 2–4 sentences, focusing on actionable recommendations for the *entire course*. Avoid generic introductions.
+* **Focus:** Identifying clear design strengths and offering concrete, strategic improvements to the *course's* pedagogical efficacy, leveraging the underlying data.
+* **Avoid:** Technical jargon not universally understood in pedagogical circles, or directly mentioning the metric names or numerical scores.
+
+**Prompt Instruction:**
+Given the underlying quality observations: Course Learning Unity: {final_rating}, Learning Objective Coherence (Average): {intermediate_lo_coherence_score:.3f}, Content Coherence (Average): {intermediate_content_coherence_score:.3f}, and Module Name Alignment (Average): {intermediate_name_alignment_score:.3f}, deliver a precise pedagogical assessment and concrete, actionable recommendations for the overall internal unity of the course. Synthesize all provided information, clearly articulating areas for improvement or highlighting key strengths of the *entire course*. The final sentence must be a concise summary of the overall feedback, unequivocally outlining a primary action item for course optimization.
+"""
         return user_prompt, instructor_prompt
 
 
@@ -905,9 +1197,8 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
             }
 
             for name, future in futures.items():
-                original_scores, intermediate_data = future.result()
-
                 if name == 'metric1':
+                    original_scores, intermediate_data = future.result()
                     results['Inter Module Progression Coherence'] = {
                         "Module Transitions": []
                     }
@@ -919,7 +1210,6 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                         })
                     else:
                         for i, score in enumerate(original_scores):
-                            # Changed to round to 2 decimal places
                             scaled_score = round(1 + 4 * float(score), 2)
                             module_pair_name = intermediate_data[i]['module_pair']
 
@@ -941,8 +1231,31 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                                 "Instructor Feedback": instructor_exp
                             })
 
+                        # New Course-Level Summary for Metric 1
+                        avg_score = float(np.mean(original_scores)) if original_scores else 0.0
+                        avg_scaled_score = round(1 + 4 * avg_score, 2)
+                        
+                        avg_gemini_score = float(np.mean([d['gemini_semantic_score'] for d in intermediate_data])) if intermediate_data else 0.0
+                        avg_embedding_score = float(np.mean([d['embedding_score'] for d in intermediate_data])) if intermediate_data else 0.0
+
+                        user_prompt_text_course, instructor_prompt_text_course = self.prompt_inter_module_progression_coherence(
+                            intermediate_gemini_semantic_score=avg_gemini_score,
+                            intermediate_embedding_score=avg_embedding_score,
+                            final_rating=avg_scaled_score,
+                            module_pair=None # Indicate this is a course-level prompt
+                        )
+                        user_exp_course = self.call_gemini(user_prompt_text_course) if self.gemini_model else "Explanation not available."
+                        instructor_exp_course = self.call_gemini(instructor_prompt_text_course) if self.gemini_model else "Explanation not available."
+
+                        results['Inter Module Progression Coherence']['Course Level Evaluation'] = {
+                            "Overall Score": avg_scaled_score,
+                            "Learner Perspective Assessment": user_exp_course,
+                            "Instructor Feedback": instructor_exp_course
+                        }
+
                 elif name == 'metric2':
-                    # Changed to round to 2 decimal places
+                    # No changes for metric 2
+                    original_scores, intermediate_data = future.result()
                     scaled_score = round(1 + 4 * float(original_scores), 2)
 
                     user_prompt_text, instructor_prompt_text = self.prompt_course_module_alignment(
@@ -962,6 +1275,7 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                     }
 
                 elif name == 'metric3':
+                    original_scores, intermediate_data = future.result()
                     results['Intra Module Content Flow'] = {
                         "modules": []
                     }
@@ -973,7 +1287,6 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                         })
                     else:
                         for i, score in enumerate(original_scores):
-                            # Changed to round to 2 decimal places
                             scaled_score = round(1 + 4 * float(score), 2)
                             module_name = modules[i].get('module_name', f"Module {i+1}")
 
@@ -993,7 +1306,28 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                                 "Instructor Feedback": instructor_exp
                             })
 
+                        # New Course-Level Summary for Metric 3
+                        avg_score = float(np.mean(original_scores)) if original_scores else 0.0
+                        avg_scaled_score = round(1 + 4 * avg_score, 2)
+                        
+                        avg_sequential_similarity = float(np.mean([np.mean(d['sequential_similarities']) for d in intermediate_data if d['sequential_similarities']])) if any(d['sequential_similarities'] for d in intermediate_data) else 0.0
+
+                        user_prompt_text_course, instructor_prompt_text_course = self.prompt_intra_module_content_flow(
+                            intermediate_sequential_similarities_avg=avg_sequential_similarity,
+                            module_name=None, # Indicate this is a course-level prompt
+                            final_rating=avg_scaled_score
+                        )
+                        user_exp_course = self.call_gemini(user_prompt_text_course) if self.gemini_model else "Explanation not available."
+                        instructor_exp_course = self.call_gemini(instructor_prompt_text_course) if self.gemini_model else "Explanation not available."
+
+                        results['Intra Module Content Flow']['Course Level Evaluation'] = {
+                            "Overall Score": avg_scaled_score,
+                            "Learner Perspective Assessment": user_exp_course,
+                            "Instructor Feedback": instructor_exp_course
+                        }
+
                 elif name == 'metric4':
+                    original_scores, intermediate_data = future.result()
                     results['Objective Content Alignment'] = {
                         "modules": []
                     }
@@ -1005,7 +1339,6 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                         })
                     else:
                         for i, score in enumerate(original_scores):
-                            # Changed to round to 2 decimal places
                             scaled_score = round(1 + 4 * float(score), 2)
                             module_name = modules[i].get('module_name', f"Module {i+1}")
 
@@ -1026,7 +1359,30 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                                 "Instructor Feedback": instructor_exp,
                             })
 
+                        # New Course-Level Summary for Metric 4
+                        avg_score = float(np.mean(original_scores)) if original_scores else 0.0
+                        avg_scaled_score = round(1 + 4 * avg_score, 2)
+                        
+                        avg_embedding_score = float(np.mean([d['embedding_score'] for d in intermediate_data])) if intermediate_data else 0.0
+                        avg_gemini_score = float(np.mean([d['gemini_semantic_score'] for d in intermediate_data])) if intermediate_data else 0.0
+                        
+                        user_prompt_text_course, instructor_prompt_text_course = self.prompt_objective_content_alignment(
+                            intermediate_embedding_score=avg_embedding_score,
+                            intermediate_gemini_semantic_score=avg_gemini_score,
+                            module_name=None, # Indicate this is a course-level prompt
+                            final_rating=avg_scaled_score
+                        )
+                        user_exp_course = self.call_gemini(user_prompt_text_course) if self.gemini_model else "Explanation not available."
+                        instructor_exp_course = self.call_gemini(instructor_prompt_text_course) if self.gemini_model else "Explanation not available."
+
+                        results['Objective Content Alignment']['Course Level Evaluation'] = {
+                            "Overall Score": avg_scaled_score,
+                            "Learner Perspective Assessment": user_exp_course,
+                            "Instructor Feedback": instructor_exp_course
+                        }
+                
                 elif name == 'metric5':
+                    original_scores, intermediate_data = future.result()
                     results['Module Learning Unity'] = {
                         "modules": []
                     }
@@ -1038,7 +1394,6 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                         })
                     else:
                         for i, score in enumerate(original_scores):
-                            # Changed to round to 2 decimal places
                             scaled_score = round(1 + 4 * float(score), 2)
                             module_name = modules[i].get('module_name', f"Module {i+1}")
 
@@ -1059,6 +1414,30 @@ Given the underlying quality observations: Module Learning Unity: {final_rating}
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp,
                             })
+
+                        # New Course-Level Summary for Metric 5
+                        avg_score = float(np.mean(original_scores)) if original_scores else 0.0
+                        avg_scaled_score = round(1 + 4 * avg_score, 2)
+                        
+                        avg_lo_coherence = float(np.mean([d['lo_coherence_score'] for d in intermediate_data])) if intermediate_data else 0.0
+                        avg_content_coherence = float(np.mean([d['content_coherence_score'] for d in intermediate_data])) if intermediate_data else 0.0
+                        avg_name_alignment = float(np.mean([d['name_alignment_score'] for d in intermediate_data])) if intermediate_data else 0.0
+
+                        user_prompt_text_course, instructor_prompt_text_course = self.prompt_module_learning_unity(
+                            intermediate_lo_coherence_score=avg_lo_coherence,
+                            intermediate_content_coherence_score=avg_content_coherence,
+                            intermediate_name_alignment_score=avg_name_alignment,
+                            module_name=None, # Indicate this is a course-level prompt
+                            final_rating=avg_scaled_score
+                        )
+                        user_exp_course = self.call_gemini(user_prompt_text_course) if self.gemini_model else "Explanation not available."
+                        instructor_exp_course = self.call_gemini(instructor_prompt_text_course) if self.gemini_model else "Explanation not available."
+
+                        results['Module Learning Unity']['Course Level Evaluation'] = {
+                            "Overall Score": avg_scaled_score,
+                            "Learner Perspective Assessment": user_exp_course,
+                            "Instructor Feedback": instructor_exp_course
+                        }
 
         return results
 
@@ -1081,7 +1460,7 @@ if __name__ == "__main__":
     # For local testing, replace with your actual values
     service_account_file = ""
     folder_id = "" # Replace with your folder ID
-    gemini_api_key = '' # Replace with your actual Gemini API Key
+    gemini_api_key = "" # Replace with your actual Gemini API Key
 
     start_time = time.time()
 
