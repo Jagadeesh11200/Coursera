@@ -63,11 +63,25 @@ def parse_prerequisites(prereq_text):
         "Conceptual Prerequisites": conceptual
     }
 
-def verify_course_prerequisites(course_title, course_description):
+def verify_course_prerequisites(course_description):
     prompt = f"""
-You are an expert course designer. Based on the course title and description, determine whether the course-level prerequisites can be reasonably identified. If the information is insufficient, respond honestly without making assumptions. If no prerequisites are present, simply state: "No Prerequisites found."
+You are an expert course designer specializing in rigorous and honest evaluation of course documentation. Your task is to review the following course description and determine with clarity whether it includes explicit or clearly implied prerequisites.
 
-Course Title: {course_title}
+Guidelines:
+- Only consider statements within the course description itself. Do NOT infer or assume requirements based on the course title or general academic norms.
+- If the description does mention prerequisites, you must:
+    1. Quote the relevant text verbatim.
+    2. Paraphrase what the prerequisite is.
+    3. Clearly indicate that prerequisites are explicitly present.
+- If the prerequisites are implied but not clearly stated, you must:
+    1. Explain how you interpreted the implication.
+    2. Clearly state that the prerequisites are only implied, not explicit.
+- If the course description does NOT contain any prerequisites or implications within the text, simply respond: "No Prerequisites found."
+- If there is any ambiguity or missing information, honestly acknowledge it and do NOT assume any prerequisites.
+- Do NOT draw on outside knowledge or common sense. Focus strictly on the provided course description.
+- Do NOT fill gaps with your own reasoning. Always be explicit if information is absent or insufficient.
+- Do NOT make up any content.
+
 Course Description: {course_description}
 """
     response = model.generate_content(prompt)
@@ -386,7 +400,11 @@ Given the underlying quality observations: Semantic Closeness: {avg_cosine}, Log
         return response.text.strip()
     else:
         raise ValueError("Invalid persona_type. Choose 'learner' or 'instructor'.")
-
+    
+def is_no_prerequisites(response_text):
+    # Normalize whitespace, case, and punctuation
+    normalized = re.sub(r'[^\w\s]', '', response_text).strip().lower()
+    return normalized == "no prerequisites found"
 
 
 def extract_final_prerequisite_score(text):
@@ -399,11 +417,12 @@ def process_course_prerequisites(course_path, metadata_path, output_path):
     metadata = load_metadata(metadata_path)
 
     course_name = metadata.get("Course", "")
-    course_description = metadata.get("Course Description", "")  # Make sure this field exists
+    course_description = metadata.get("About this Course", "")  # Make sure this field exists
 
     # Run prerequisite presence check
-    prereq_verification = verify_course_prerequisites(course_name, course_description)
-    if prereq_verification.strip() == "No Prerequisites found.":
+    prereq_verification = verify_course_prerequisites(course_description)
+    print(prereq_verification)
+    if is_no_prerequisites(prereq_verification):
         print("🛑 No Prerequisites found.")
 
         output = {
@@ -426,6 +445,8 @@ def process_course_prerequisites(course_path, metadata_path, output_path):
 
         print(f"✅ Saved empty prerequisite evaluation to: {output_file}")
         return  # End early
+    else:
+        print("✅ Prerequisites are Present.")
 
     # Extract structured prerequisites and convert to formatted text
     prereq_data = metadata.get("Prerequisites", {})
