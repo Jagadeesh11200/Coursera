@@ -1199,6 +1199,13 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
             for name, future in futures.items():
                 if name == 'metric1':
                     original_scores, intermediate_data = future.result()
+
+                    for data in intermediate_data:
+                        embedding_score = data['embedding_score']
+                        gemini_score = data['gemini_semantic_score']
+                        print(f"  - Embedding Score: {embedding_score:.2f}")
+                        print(f"  - Gemini Semantic Score: {gemini_score:.2f}")
+
                     results['Inter Module Progression Coherence'] = {
                         "Module Transitions": []
                     }
@@ -1226,10 +1233,13 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                             results['Inter Module Progression Coherence']['Module Transitions'].append({
                                 "From Module": module_pair_name.split(' to ')[0],
                                 "To Module": module_pair_name.split(' to ')[1],
+                                "Embedding Score": round(intermediate_data[i]['embedding_score'], 4),
+                                "Gemini Semantic Score": round(intermediate_data[i]['gemini_semantic_score'], 4),
                                 "Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp
                             })
+
 
                         # New Course-Level Summary for Metric 1
                         avg_score = float(np.mean(original_scores)) if original_scores else 0.0
@@ -1257,6 +1267,10 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                     # No changes for metric 2
                     original_scores, intermediate_data = future.result()
                     scaled_score = round(1 + 4 * float(original_scores), 2)
+                    
+                    results['Course Module Alignment'] = {
+                        "Overall Score": scaled_score,
+                    }
 
                     user_prompt_text, instructor_prompt_text = self.prompt_course_module_alignment(
                         intermediate_embedding_component_raw=float(intermediate_data["final_score_components"]["embedding_component"]) / 0.4,
@@ -1268,11 +1282,10 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                     user_exp = self.call_gemini(user_prompt_text) if self.gemini_model else "Explanation not available."
                     instructor_exp = self.call_gemini(instructor_prompt_text) if self.gemini_model else "Explanation not available."
 
-                    results['Course Module Alignment'] = {
-                        "Overall Score": scaled_score,
+                    results['Course Module Alignment'].update({
                         "Learner Perspective Assessment": user_exp,
                         "Instructor Feedback": instructor_exp
-                    }
+                    })
 
                 elif name == 'metric3':
                     original_scores, intermediate_data = future.result()
@@ -1301,10 +1314,12 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
 
                             results['Intra Module Content Flow']['modules'].append({
                                 "Module Name": module_name,
+                                "Average Sequential Similarity": round(np.mean(intermediate_data[i]['sequential_similarities']) if intermediate_data[i]['sequential_similarities'] else 0.0, 4),
                                 "Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp
                             })
+
 
                         # New Course-Level Summary for Metric 3
                         avg_score = float(np.mean(original_scores)) if original_scores else 0.0
@@ -1355,9 +1370,13 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                             results['Objective Content Alignment']['modules'].append({
                                 "Module Name": module_name,
                                 "Score": scaled_score,
+                                "Embedding Score": round(intermediate_data[i]['embedding_score'], 4),
+                                "Gemini Semantic Score": round(intermediate_data[i]['gemini_semantic_score'], 4),
+                                "Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp,
                             })
+
 
                         # New Course-Level Summary for Metric 4
                         avg_score = float(np.mean(original_scores)) if original_scores else 0.0
@@ -1380,7 +1399,7 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                             "Learner Perspective Assessment": user_exp_course,
                             "Instructor Feedback": instructor_exp_course
                         }
-                
+                    
                 elif name == 'metric5':
                     original_scores, intermediate_data = future.result()
                     results['Module Learning Unity'] = {
@@ -1410,6 +1429,9 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
 
                             results['Module Learning Unity']['modules'].append({
                                 "Module Name": module_name,
+                                "Learning Objective Coherence": round(intermediate_data[i]['lo_coherence_score'], 4),
+                                "Content Coherence": round(intermediate_data[i]['content_coherence_score'], 4),
+                                "Module Name Alignment": round(intermediate_data[i]['name_alignment_score'], 4),
                                 "Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp,
@@ -1440,7 +1462,7 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                         }
 
         return results
-
+    
 # --------- New Usage Function for GDrive Integration ---------
 
 def analyze_course_from_gdrive(service_account_file, folder_id, gemini_api_key):
@@ -1458,9 +1480,9 @@ def analyze_course_from_gdrive(service_account_file, folder_id, gemini_api_key):
 if __name__ == "__main__":
     # Ensure you have your service account file and Gemini API key configured
     # For local testing, replace with your actual values
-    service_account_file = ""
+    service_account_file = r""
     folder_id = "" # Replace with your folder ID
-    gemini_api_key = os.getenv("GOOGLE_API_KEY") # Replace with your actual Gemini API Key
+    gemini_api_key = "" # Replace with your actual Gemini API Key
 
     start_time = time.time()
 
@@ -1480,4 +1502,3 @@ if __name__ == "__main__":
         print("Course analysis failed or no metadata found.")
 
     print(f"\nTotal execution time: {elapsed_time:.2f} seconds")
-
