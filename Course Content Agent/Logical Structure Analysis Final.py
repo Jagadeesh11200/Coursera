@@ -1460,7 +1460,7 @@ if __name__ == "__main__":
     # For local testing, replace with your actual values
     service_account_file = ""
     folder_id = "" # Replace with your folder ID
-    gemini_api_key = "" # Replace with your actual Gemini API Key
+    gemini_api_key = os.getenv("GOOGLE_API_KEY") # Replace with your actual Gemini API Key
 
     start_time = time.time()
 
@@ -1480,3 +1480,4 @@ if __name__ == "__main__":
         print("Course analysis failed or no metadata found.")
 
     print(f"\nTotal execution time: {elapsed_time:.2f} seconds")
+
