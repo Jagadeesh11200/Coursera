@@ -1283,9 +1283,9 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
                     instructor_exp = self.call_gemini(instructor_prompt_text) if self.gemini_model else "Explanation not available."
 
                     results['Course Module Alignment'].update({
-                        "Embedding Component": round(float(intermediate_data["final_score_components"]["embedding_component"]) / 0.4, 4),
-                        "Gemini Component": round(float(intermediate_data["final_score_components"]["gemini_component"]) / 0.4, 4),
-                        "Keyword Coverage Component": round(float(intermediate_data["final_score_components"]["keyword_coverage_component"]) / 0.2, 4),
+                        "Embedding Component Score": round(float(intermediate_data["final_score_components"]["embedding_component"]) / 0.4, 4),
+                        "Gemini Component Score": round(float(intermediate_data["final_score_components"]["gemini_component"]) / 0.4, 4),
+                        "Keyword Coverage Component Score": round(float(intermediate_data["final_score_components"]["keyword_coverage_component"]) / 0.2, 4),
                         "Overall Score": scaled_score,
                         "Learner Perspective Assessment": user_exp,
                         "Instructor Feedback": instructor_exp
@@ -1319,7 +1319,7 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
 
                             results['Intra Module Content Flow']['modules'].append({
                                 "Module Name": module_name,
-                                "Average Sequential Similarity": round(np.mean(intermediate_data[i]['sequential_similarities']) if intermediate_data[i]['sequential_similarities'] else 0.0, 4),
+                                "Average Sequential Similarity Score": round(np.mean(intermediate_data[i]['sequential_similarities']) if intermediate_data[i]['sequential_similarities'] else 0.0, 4),
                                 "Final Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp
@@ -1433,9 +1433,9 @@ Given the underlying quality observations: Course Learning Unity: {final_rating}
 
                             results['Module Learning Unity']['modules'].append({
                                 "Module Name": module_name,
-                                "Learning Objective Coherence": round(intermediate_data[i]['lo_coherence_score'], 4),
-                                "Content Coherence": round(intermediate_data[i]['content_coherence_score'], 4),
-                                "Module Name Alignment": round(intermediate_data[i]['name_alignment_score'], 4),
+                                "Learning Objective Coherence Score": round(intermediate_data[i]['lo_coherence_score'], 4),
+                                "Content Coherence Score": round(intermediate_data[i]['content_coherence_score'], 4),
+                                "Module Name Alignment Score": round(intermediate_data[i]['name_alignment_score'], 4),
                                 "Final Score": scaled_score,
                                 "Learner Perspective Assessment": user_exp,
                                 "Instructor Feedback": instructor_exp,
@@ -1482,8 +1482,7 @@ def analyze_course_from_gdrive(service_account_file, folder_id, gemini_api_key):
 
 # Sample usage
 if __name__ == "__main__":
-    # Ensure you have your service account file and Gemini API key configured
-    # For local testing, replace with your actual values
+
     service_account_file = r""
     folder_id = "" # Replace with your folder ID
     gemini_api_key = "" # Replace with your actual Gemini API Key
