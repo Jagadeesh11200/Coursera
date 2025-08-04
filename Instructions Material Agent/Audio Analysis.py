@@ -1920,8 +1920,8 @@ def perform_audio_subtitle_analysis(service_account_file, folder_id):
     save_dict_to_json(convert_to_serializable(result), "Audio Subtitle Validation Results.json")
 
 if __name__ == "__main__":
-    service_account_file = "slack-project.json"
-    folder_id = "157Wq783qdGqBUoFbpYTsMKAQRPzi_5WX"
+    service_account_file = ""
+    folder_id = ""
     start_time = time.time()
     perform_audio_analysis(service_account_file, folder_id)
     perform_audio_subtitle_analysis(service_account_file, folder_id)
