@@ -35,7 +35,7 @@ import subprocess
 from google.api_core.exceptions import InternalServerError, ResourceExhausted
 import google.generativeai as genai
 
-genai.configure(api_key = "")
+genai.configure(api_key = os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel(model_name="gemini-2.0-flash-001")
 
 # Configure logging
@@ -3162,3 +3162,4 @@ if __name__ == "__main__":
     end_time = time.time()
     elapsed_minutes = (end_time - start_time) / 60
     print(f"\nTotal analysis time: {elapsed_minutes:.2f} minutes")
+
