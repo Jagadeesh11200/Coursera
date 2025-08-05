@@ -39,7 +39,7 @@ nlp = spacy.load("en_core_web_sm")
 sentiment_analyzer = pipeline("sentiment-analysis")
 dictionary = pyphen.Pyphen(lang='en')
 
-genai.configure(api_key = OS.get_env("GOOGLE_API_KEY"))
+genai.configure(api_key = os.getenv("GOOGLE_API_KEY"))
 
 # Initialize the model
 print("Loading sentence transformer model...")
@@ -208,8 +208,8 @@ def calculate_easy_to_understand_score(doc):
     word_freq = [token.text.lower() for token in doc if token.is_alpha and not token.is_stop]
     word_length_avg = np.mean([len(word) for word in word_freq])
     syllables_avg = np.mean([syllable_count(word) for word in word_freq])
-    raw_score = max(0, 10 - (word_length_avg + syllables_avg))
-    score = round(float(np.clip(raw_score / 2, 1, 5)), 2)
+    raw_score = max(0, 16 - (0.6 * word_length_avg + 0.3 * syllables_avg))
+    score = round(float(np.clip(raw_score / 3, 1, 5)), 2)
 
     return {
         'score': score,
@@ -224,8 +224,11 @@ def classify_engagement_feel_dynamic(sentences):
     sentiments = sentiment_analyzer(sentences)
     sentiment_scores = [s['score'] if s['label'] == 'POSITIVE' else -s['score'] for s in sentiments]
     avg_sentiment = np.mean(sentiment_scores)
-    raw_score = avg_sentiment * 10
-    score = round(float(np.clip((raw_score + 10) / 4, 1, 5)), 2)
+    
+    # Hyperparameters tweaked for higher scores:
+    raw_score = avg_sentiment * 12  # Increase the spread a bit (was 10)
+    # Offset increased (+11) and divisor reduced (now / 3.5, was 4)
+    score = round(float(np.clip((raw_score + 11) / 3.5, 1, 5)), 2)
 
     return {
         'score': score,
@@ -261,8 +264,8 @@ def pacing_and_flow_score(sentences, embeddings):
     similarities = util.cos_sim(embeddings[:-1], embeddings[1:]).diagonal().tolist()
     avg_similarity = np.mean(similarities)
     similarity_std = np.std(similarities)
-    raw_score = avg_similarity * 10
-    score = round(float(np.clip(raw_score / 2, 1, 5)), 2)
+    raw_score = avg_similarity * 12 + 0.8  # Was 10
+    score = round(float(np.clip(raw_score / 2.4, 1, 5)), 2)  # Was /2
 
     return {
         'score': score,
@@ -279,8 +282,10 @@ def learning_value_score(sentences, embeddings):
     similarities_to_centroid = util.cos_sim(embeddings, centroid).squeeze().cpu().numpy()
     avg_coherence = np.mean(similarities_to_centroid)
     coherence_std = np.std(similarities_to_centroid)
-    raw_score = avg_coherence * 10
-    score = round(float(np.clip(raw_score / 2, 1, 5)), 2)
+
+    # Higher multiplier and small positive offset for higher raw scores
+    raw_score = avg_coherence * 12 + 0.7  # was: avg_coherence * 10
+    score = round(float(np.clip(raw_score / 2.5, 1, 5)), 2)  # was: /2
 
     return {
         'score': score,
@@ -383,6 +388,58 @@ def prompt_easy_to_understand_batch(word_length_avg_list, syllables_avg_list, ra
     """
     return learner_prompt, instructor_prompt
 
+def prompt_easy_to_understand_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s perception of how easy the **language across a course** is to read and comprehend.  
+    The **Easy-to-Understand** metric reflects how approachable and accessible the material feels based on overall linguistic complexity across all modules.
+
+    **Evaluation Methodology:**
+    - **Average Word Length:** Shorter words typically indicate simpler vocabulary.
+    - **Average Syllables per Word:** Fewer syllables improve readability and pronunciation ease.
+    - **Raw Complexity Score (0–10):** Combines both metrics to quantify simplicity.
+    - **Final Ratings:** Scaled from 1 (very difficult) to 5 (extremely easy to understand).
+    - **Alignment Balance Ratings:** Reflects fairness in coverage of learning objectives (included for broader learner perspective).
+
+    **Expected Response Guidelines:**
+    - Perspective: From a learner’s point of view.
+    - Tone: Formal, passive, concise.
+    - Style: 2–4 sentence reflection in mostly passive voice.
+    - Focus: Overall clarity, effort required, and reading smoothness throughout the course.
+
+    **Prompt Instruction:**
+    Given the following **module-level data**:
+
+    {module_level_data}
+
+    Write a short learner-style reflection summarizing how easy or difficult the language felt **across the course**.  
+    Avoid technical explanation of metrics. Focus instead on the perceived clarity, simplicity, and reading effort required by the learner.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant evaluating the **linguistic accessibility** of a course using the **Easy-to-Understand Score** and **Alignment Balance** for contextual insight.
+
+    **Evaluation Methodology:**
+    - **Average Word Length:** Shorter words generally mean simpler vocabulary.
+    - **Average Syllables per Word:** Fewer syllables improve readability.
+    - **Raw Complexity Score (0–10):** Combines both metrics to indicate simplicity.
+    - **Final Ratings (1–5):** 1 = complex, 5 = simple and accessible.
+    - **Alignment Balance Ratings:** Additional reference to ensure language accessibility does not undermine even coverage of learning objectives.
+
+    **Course Data:**
+    {module_level_data}
+
+    **Response Guidelines:**
+    - Use formal tone and passive voice.
+    - Write a concise 2–4 line **course-level** evaluation.
+    - Identify the dimension (word length or syllables) most consistently reducing accessibility.
+    - Offer targeted, actionable improvement suggestions.
+    - Avoid module-specific analysis.
+
+    Provide a high-level summary of systemic linguistic trends affecting accessibility across the course.
+    """
+    
+    return learner_prompt, instructor_prompt
+
 def prompt_engagement(avg_sentiment, positive_ratio, raw_score, final_rating):
     learner_prompt = f"""
     You are simulating a learner’s emotional response while interacting with the course content. The **Engagement Score** reflects how motivational, emotionally resonant, and inspiring the course feels based on language tone.
@@ -470,6 +527,56 @@ def prompt_engagement_batch(avg_sentiment_list, positive_ratio_list, raw_score_l
     Identify the metric with the **most consistent deviation from ideal**, and offer a brief recommendation (in passive voice) on how engagement could be enhanced.  
     Avoid sample-specific feedback — focus on the macro-level learner experience and improvement path.
     """
+    return learner_prompt, instructor_prompt
+
+def prompt_engagement_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s emotional response while experiencing a **course** composed of multiple modules.  
+    The **Engagement Score** reflects how motivational, emotionally resonant, and inspiring the course feels overall, based on tone and delivery throughout.
+
+    **Evaluation Methodology:**
+    - **Average Sentiment** (-1 to 1): Indicates overall emotional tone.
+    - **Positive Ratio** (0 to 1): Measures frequency of uplifting and motivational language.
+    - **Raw Engagement Score** (-10 to 10): Synthesizes emotional and motivational cues.
+    - **Final Ratings**: Scaled from the above metrics to a 1–5 score, where 5 = highly engaging.
+
+    **Expected Response Guidelines:**
+    - Perspective: Simulated learner experience across the entire course.
+    - Tone: Formal, passive, concise.
+    - Style: 2–4 sentence summary using passive voice wherever natural.
+    - Focus: Emotional connection, motivation, and consistency of delivery.
+
+    **Prompt Instruction:**
+    Given the following **module-level engagement data**, reflect on the **overall course-level engagement experience**:
+
+    {module_level_data}
+
+    Write a short learner-style reflection summarizing how engaging and motivational the course felt overall.  
+    Avoid technical explanation of metrics — focus on the learner’s perceived emotional resonance and consistency of motivation.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant evaluating the **engagement quality** of a course composed of multiple modules, using sentiment-derived metrics.
+
+    **Evaluation Methodology:**
+    - **Average Sentiment** (-1 to 1): Indicates overall emotional tone.
+    - **Positive Ratio** (0 to 1): Measures frequency of uplifting and motivational language.
+    - **Raw Engagement Score** (-10 to 10): Synthesizes emotional and motivational cues.
+    - **Final Ratings**: Scaled from the above metrics to a 1–5 score, where 5 = highly engaging.
+
+    **Course Data:**
+    {module_level_data}
+
+    **Response Guidelines:**
+    - Use formal tone and passive voice.
+    - Provide a 2–4 line, improvement-oriented summary of overall course engagement quality.
+    - Identify the metric that most consistently deviated from ideal performance.
+    - Suggest one concise, actionable improvement for enhancing emotional engagement across the course.
+    - Avoid module-specific detail; focus on overall trends.
+
+    Provide a high-level summary reflecting the macro-level learner engagement experience and improvement path.
+    """
+    
     return learner_prompt, instructor_prompt
 
 def prompt_pacing_flow(avg_similarity, similarity_std, consistency_score, raw_score, final_rating):
@@ -570,6 +677,56 @@ def prompt_pacing_flow_batch(avg_similarity_list, similarity_std_list, consisten
     """
     return learner_prompt, instructor_prompt
 
+def prompt_pacing_flow_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s perception of how smoothly and clearly the **course** progressed across its modules. The **Pacing & Flow** metric reflects the logical progression and rhythm of lessons from start to finish.
+
+    **Evaluation Methodology:**
+    - **Average Similarity (−1 to 1):** Higher values suggest smoother transitions between segments.
+    - **Similarity Standard Deviation (≥0):** Lower values suggest stable pacing.
+    - **Consistency Score (0 to 1):** Higher values indicate steady structure.
+    - **Raw Flow Score (−10 to 10):** Overall directional pacing measure.
+    - **Final Ratings (1–5):** Higher means smoother, more cohesive delivery.
+
+    **Expected Response Guidelines:**
+    - Perspective: From a learner’s simulated point of view.
+    - Tone: Formal, passive, and concise.
+    - Style: 2–4 sentence holistic summary using passive voice where natural.
+    - Focus: Whether the pacing felt smooth, abrupt, repetitive, or inconsistent across the course.
+
+    **Prompt Instruction:**
+    Given the following **module-level course data**:
+
+    {module_level_data}
+
+    Write a short learner-style reflection describing the **overall flow of the course**. Avoid technical terms or metric names. Focus on the general sense of ease or difficulty in following the lessons from start to finish.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant evaluating **pacing and instructional flow** for a course composed of multiple modules. The **Pacing & Flow** metric measures the smoothness and consistency of lesson delivery across the course.
+
+    **Evaluation Methodology:**
+    - **Average Similarity (−1 to 1):** Smoother transitions at higher values.
+    - **Similarity Standard Deviation (≥0):** Lower indicates steadier pacing.
+    - **Consistency Score (0 to 1):** Higher reflects more stable structure.
+    - **Raw Flow Score (−10 to 10):** Aggregated pacing performance.
+    - **Final Ratings (1–5):** Higher reflects smoother delivery.
+
+    **Course Data:**
+    {module_level_data}
+
+    **Response Guidelines:**
+    - Use formal tone and passive voice.
+    - Provide a 2–4 line course-level summary.
+    - Identify the most significant pacing or flow weakness observed across modules.
+    - Offer one actionable recommendation to improve pacing and transitions.
+    - Avoid module-specific commentary; focus on overarching trends.
+
+    Write a concise, high-level evaluation of the course’s pacing and flow quality.
+    """
+    
+    return learner_prompt, instructor_prompt
+
 def prompt_well_structured(unique_clusters, total_clusters, cluster_diversity, raw_score, final_rating):
     learner_prompt = f"""
     You are simulating a learner’s perception of how well the course content is organized. The **Well Structured** metric reflects how clearly themes and topics are grouped, helping learners navigate and retain the material effectively.
@@ -664,6 +821,55 @@ def prompt_well_structured_batch(unique_clusters_list, total_clusters_list, clus
     Provide improvement-focused suggestions in passive voice, suitable for instructors reviewing content structure.  
     Avoid course-specific details — stick to batch-level trends and recommendations.
     """
+    return learner_prompt, instructor_prompt
+
+def prompt_well_structured_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s perception of how well-organized the course content felt across its modules. The **Well Structured** metric reflects how clearly topics were grouped and how intuitively the material flowed throughout the course.
+
+    **Evaluation Methodology:**
+    - **Unique Clusters Found:** Number of distinct content themes detected.
+    - **Total Possible Clusters:** Theoretical maximum themes.
+    - **Cluster Diversity (0–1):** Measures content variety and thematic balance.
+    - **Raw Structure Score (0–10):** Indicates clarity of theme segmentation.
+    - **Final Rating:** Scaled from 1 (poor structure) to 5 (strong structure).
+
+    **Expected Response Guidelines:**
+    - Perspective: Simulated learner.
+    - Tone: Formal, passive, concise.
+    - Style: 2–4 sentence reflection using passive voice where natural.
+    - Focus: Overall navigability, thematic clarity, and pacing across the course.
+
+    **Prompt Instruction:**
+    Given the following **module-level course data**, reflect on the **overall course-level** experience:
+
+    {module_level_data}
+
+    Write a short learner-style reflection that expresses how well the learning journey flowed and whether the themes felt clear and well-paced. Avoid technical or metric-heavy commentary.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant evaluating the **structural clarity** of a course made up of several modules, using clustering-based analytics.
+
+    **Evaluation Methodology:**
+    - **Unique Clusters Found:** Number of distinct content themes detected.
+    - **Total Possible Clusters:** Theoretical maximum.
+    - **Cluster Diversity (0–1):** Measures variety and thematic balance.
+    - **Raw Structure Score (0–10):** Reflects clarity of theme segmentation.
+    - **Final Rating:** Scaled from 1 (poor structure) to 5 (strong structure).
+
+    **Course Module Data:**
+    {module_level_data}
+
+    **Feedback Instructions:**
+    - Write a 2–4 line summary in formal tone and passive voice.
+    - Identify the structural metric most consistently deviating from its ideal.
+    - Suggest a single, course-level improvement direction without going into per-module detail.
+    - Keep recommendations focused on overall thematic clarity, navigability, and flow.
+
+    Provide a concise, improvement-focused summary for instructors to enhance structural organization in future iterations.
+    """
+
     return learner_prompt, instructor_prompt
 
 def prompt_learning_value(avg_coherence, coherence_std, focus_consistency, raw_score, final_rating):
@@ -761,6 +967,56 @@ def prompt_learning_value_batch(avg_coherence_list, coherence_std_list, focus_co
     Highlight which metric shows the greatest deviation from its ideal value (Coherence → 1, Std Dev → 0, Focus → 1, Raw Score → 10).  
     Frame the summary in passive voice, and offer concise improvement-focused feedback related to content clarity, consistency, or thematic discipline.
     """
+    return learner_prompt, instructor_prompt
+
+def prompt_learning_value_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s perception of how well a **course** maintained focus and delivered meaningful educational value across its modules. The **Learning Value Score** reflects coherence, consistency, and clarity throughout the learning journey.
+
+    **Evaluation Methodology:**
+    - **Average Coherence (-1 to 1):** Higher values indicate strong thematic alignment.
+    - **Coherence Standard Deviation (≥0):** Lower values imply consistent delivery and fewer off-topic detours.
+    - **Focus Consistency (0–1):** Measures drift and cohesion—closer to 1 indicates more clarity.
+    - **Raw Learning Score (-10 to 10):** Synthesizes alignment and value across learning components.
+    - **Final Learning Value Rating (1–5):** Reflects holistic educational effectiveness and content focus.
+
+    **Expected Response Guidelines:**
+    - Perspective: Learner’s point of view (not technical/AI).
+    - Tone: Formal, passive, concise.
+    - Style: 2–4 sentence reflection using passive voice where natural.
+    - Focus: Overall clarity, focus, and educational value across the course.
+
+    **Prompt Instruction:**
+    Given the following **module-level data**, write a learner-style reflection on the **overall course-level experience** in terms of thematic clarity, focus, and educational effectiveness:
+
+    {module_level_data}
+
+    Avoid numeric or technical detail—focus on how the course felt in terms of focus and coherence to the learner.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant evaluating the **Learning Value Score** across a course composed of multiple modules. This score quantifies the degree of focus, clarity, and thematic alignment at the course level.
+
+    **Metric Overview:**
+    - **Average Coherence (-1 to 1):** Ideal = 1
+    - **Coherence Std Dev (≥0):** Ideal = 0
+    - **Focus Consistency (0–1):** Ideal = 1
+    - **Raw Learning Score (-10 to 10):** Ideal = 10
+    - **Final Learning Value Rating (1–5):** Reflects overall educational effectiveness
+
+    **Course Data:**
+    {module_level_data}
+
+    **Response Guidelines:**
+    - Use formal tone and passive voice.
+    - Write a 2–4 line instructor-style summary assessing overall learning value.
+    - Identify which metric shows the greatest deviation from its ideal value.
+    - Offer concise, actionable feedback related to improving clarity, consistency, or thematic focus.
+    - Avoid module-specific breakdowns; focus on course-wide trends.
+
+    Provide a high-level evaluation of the course’s learning value.
+    """
+    
     return learner_prompt, instructor_prompt
 
 def execute_prompt(prompt):
@@ -882,7 +1138,8 @@ def evaluate_transcript_content(file_path: str, service_account_file: str, file_
         "Easy-to-Understand Score": {
             "Intermediate Parameters": {
                 "Average Word Length": easy_result['intermediates']['word_length_avg'],
-                "Average Syllables per word": easy_result['intermediates']['syllables_avg']
+                "Average Syllables per word": easy_result['intermediates']['syllables_avg'],
+                "Raw Score": easy_result['intermediates']['raw_score']
             },
             "Final Score": easy_result['score'],
             "User Persepective Assessment": easy_score_user_feedback,
@@ -892,23 +1149,42 @@ def evaluate_transcript_content(file_path: str, service_account_file: str, file_
             "Intermediate Parameters": {
                 "Average Sentiment": engagement_result['intermediates']['avg_sentiment'],
                 "Positive Ratio": engagement_result['intermediates']['positive_ratio'],
+                "Raw Score": engagement_result['intermediates']['raw_score']
             },
             "Final Score": engagement_result['score'],
             "User Persepective Assessment": engagement_score_user_feedback,
             "Instructor Feedback": engagement_score_instructor_feedback
         },
         "Pacing & Flow Score": {
-            "Value": pacing_result['score'],
+            "Intermediate Parameters": {
+                "Average Similarity": pacing_result['intermediates']['avg_similarity'],
+                "Similarity Std Dev": pacing_result['intermediates']['similarity_std'],
+                "Consistency Score": pacing_result['intermediates']['consistency_score'],
+                "Raw Score": pacing_result['intermediates']['raw_score']
+            },
+            "Final Score": pacing_result['score'],
             "User Persepective Assessment": pacing_score_user_feedback,
             "Instructor Feedback": pacing_score_instructor_feedback
         },
         "Well Structured Score": {
-            "Value": structure_result['score'],
+            "Intermediate Parameters": {
+                "Unique Clusters": structure_result['intermediates']['unique_clusters'],
+                "Total Clusters": structure_result['intermediates']['total_clusters'],
+                "Cluster Diversity": structure_result['intermediates']['cluster_diversity'],
+                "Raw Score": structure_result['intermediates']['raw_score']
+            },
+            "Final Score": structure_result['score'],
             "User Persepective Assessment": structure_score_user_feedback,
             "Instructor Feedback": structure_score_instructor_feedback
         },
         "Learning Value Score": {
-            "Value": learning_result['score'],
+            "Intermediate Parameters": {
+                "Average Coherence": learning_result['intermediates']['avg_coherence'],
+                "Coherence Std Dev": learning_result['intermediates']['coherence_std'],
+                "Focus Consistency": learning_result['intermediates']['focus_consistency'],
+                "Raw Score": learning_result['intermediates']['raw_score']
+            },
+            "Final Score": learning_result['score'],
             "User Persepective Assessment": learning_score_user_feedback,
             "Instructor Feedback": learning_score_instructor_feedback
         }
@@ -1006,28 +1282,56 @@ def evaluate_reading_content(file_name, text):
     return {
         "File Name": file_name,
         "Easy-to-Understand Score": {
-            "Value": easy_result['score'],
-            "User Feedback": easy_score_user_feedback,
+            "Intermediate Parameters": {
+                "Average Word Length": easy_result['intermediates']['word_length_avg'],
+                "Average Syllables per word": easy_result['intermediates']['syllables_avg'],
+                "Raw Score": easy_result['intermediates']['raw_score']
+            },
+            "Final Score": easy_result['score'],
+            "User Persepective Assessment": easy_score_user_feedback,
             "Instructor Feedback": easy_score_instructor_feedback
         },
         "Engagement Score": {
-            "Value": engagement_result['score'],
-            "User Feedback": engagement_score_user_feedback,
+            "Intermediate Parameters": {
+                "Average Sentiment": engagement_result['intermediates']['avg_sentiment'],
+                "Positive Ratio": engagement_result['intermediates']['positive_ratio'],
+                "Raw Score": engagement_result['intermediates']['raw_score']
+            },
+            "Final Score": engagement_result['score'],
+            "User Persepective Assessment": engagement_score_user_feedback,
             "Instructor Feedback": engagement_score_instructor_feedback
         },
         "Pacing & Flow Score": {
-            "Value": pacing_result['score'],
-            "User Feedback": pacing_score_user_feedback,
+            "Intermediate Parameters": {
+                "Average Similarity": pacing_result['intermediates']['avg_similarity'],
+                "Similarity Std Dev": pacing_result['intermediates']['similarity_std'],
+                "Consistency Score": pacing_result['intermediates']['consistency_score'],
+                "Raw Score": pacing_result['intermediates']['raw_score']
+            },
+            "Final Score": pacing_result['score'],
+            "User Persepective Assessment": pacing_score_user_feedback,
             "Instructor Feedback": pacing_score_instructor_feedback
         },
         "Well Structured Score": {
-            "Value": structure_result['score'],
-            "User Feedback": structure_score_user_feedback,
+            "Intermediate Parameters": {
+                "Unique Clusters": structure_result['intermediates']['unique_clusters'],
+                "Total Clusters": structure_result['intermediates']['total_clusters'],
+                "Cluster Diversity": structure_result['intermediates']['cluster_diversity'],
+                "Raw Score": structure_result['intermediates']['raw_score']
+            },
+            "Final Score": structure_result['score'],
+            "User Persepective Assessment": structure_score_user_feedback,
             "Instructor Feedback": structure_score_instructor_feedback
         },
         "Learning Value Score": {
-            "Value": learning_result['score'],
-            "User Feedback": learning_score_user_feedback,
+            "Intermediate Parameters": {
+                "Average Coherence": learning_result['intermediates']['avg_coherence'],
+                "Coherence Std Dev": learning_result['intermediates']['coherence_std'],
+                "Focus Consistency": learning_result['intermediates']['focus_consistency'],
+                "Raw Score": learning_result['intermediates']['raw_score']
+            },
+            "Final Score": learning_result['score'],
+            "User Persepective Assessment": learning_score_user_feedback,
             "Instructor Feedback": learning_score_instructor_feedback
         }
     }
@@ -1244,6 +1548,58 @@ def prompt_semantic_alignment_batch(semantic_alignment_raw_list, max_similaritie
 
     return learner_prompt, instructor_prompt
 
+def prompt_semantic_alignment_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s perception of how well a **course** reflected its stated learning objectives across multiple modules.  
+    The **Semantic Alignment** metric reflects how closely the meaning of the transcript content aligns with the intended objectives.
+
+    **Evaluation Methodology:**
+    - **Max Similarities**: Higher values indicate strong alignment between objectives and the most relevant parts of the content.
+    - **Mean Similarities**: Higher averages suggest consistent reinforcement of objectives.
+    - **Number of Chunks**: Indicates granularity of coverage within the content.
+    - **Raw Scores**: Overall semantic alignment strength on a 0–1 scale.
+    - **Final Ratings (1–5)**: Learner-friendly alignment scores per module.
+
+    **Expected Response Guidelines:**
+    - Perspective: From a learner’s point of view (not technical).
+    - Tone: Formal, passive, concise.
+    - Style: 2–4 sentence course-level reflection.
+    - Focus: Overall clarity, consistency, and relevance of content to stated objectives.
+
+    **Prompt Instruction:**
+    Given the following **module-level data**:
+
+    {module_level_data}
+
+    Write a short learner-style reflection on the **overall course-level impression** of how well the learning objectives were reflected.  
+    Avoid technical terms and module-by-module commentary — focus on the general sense of objective coverage and consistency.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant evaluating the **Semantic Alignment** between learning objectives and transcript content for a course comprising multiple modules.
+
+    **Evaluation Methodology:**
+    - **Max Similarities**: Measures how closely any part of the content aligns with each objective.
+    - **Mean Similarities**: Indicates average reinforcement of objectives across content.
+    - **Number of Chunks**: Reflects the granularity of analysis.
+    - **Raw Scores**: Strength of semantic match on a 0–1 scale.
+    - **Final Ratings (1–5)**: Scaled alignment scores per module.
+
+    **Course Data:**
+    {module_level_data}
+
+    **Response Guidelines:**
+    - Use formal tone and passive voice.
+    - Write a 2–4 line course-level summary of **overall alignment quality**.
+    - Identify which metric most consistently deviated from ideal expectations.
+    - Provide a concise, actionable recommendation for improving alignment coverage or reinforcement of objectives.
+    - Avoid module-specific detail — focus on overall trends.
+
+    Provide a high-level evaluation of semantic alignment across the entire course.
+    """
+    
+    return learner_prompt, instructor_prompt
+
 def prompt_keyword_alignment(overlap_score, keyword_hits, total_keywords, top_keywords, final_rating):
     learner_prompt = f"""
     You are simulating a learner’s perception of how well key concepts are reinforced through course vocabulary. The **Keyword Alignment** metric reflects how consistently objective-level terminology appears in the transcript.
@@ -1331,6 +1687,52 @@ def prompt_keyword_alignment_batch(overlap_scores, keyword_hits_list, total_keyw
     Identify which aspect (overlap, hit count, or distribution of top keywords) deviates most from ideal expectations (overlap→1, all keywords covered).  
     Suggestions should be concise, formal, and focused on improving consistency and coverage of key learning terminology across the content.
     """
+    return learner_prompt, instructor_prompt
+
+def prompt_keyword_alignment_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s perception of how well **key concepts** were reinforced through course vocabulary across a **course** comprising multiple modules. The **Keyword Alignment** metric captures how consistently important terminology appears throughout the transcripts.
+
+    **Evaluation Methodology:**
+    - **Overlap Score (0–1):** Proportion of objective keywords actually appearing in the transcript.
+    - **Keyword Hits vs Total Keywords:** Indicates depth of concept coverage.
+    - **Final Rating (1–5):** Reflects overall alignment, with 5 representing strong reinforcement of key concepts.
+
+    **Expected Response Guidelines:**
+    - Perspective: Simulated learner’s point of view.
+    - Tone: Formal, passive, and concise.
+    - Style: 2–4 sentence holistic reflection.
+    - Focus: Whether terminology felt consistently reinforced throughout the course.
+
+    **Prompt Instruction:**
+    Given the following **module-level input**, reflect on the **overall course-level experience** in terms of concept reinforcement:
+
+    {module_level_data}
+
+    Write a short learner-style reflection summarizing how effectively the course reinforced its key learning concepts. Avoid citing metrics; focus on perceived terminology consistency and alignment with learning objectives.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant assessing **Keyword Alignment** across a course composed of multiple modules.
+
+    **Evaluation Methodology:**
+    - **Overlap Score (0–1):** Proportion of objective keywords actually appearing in the transcript.
+    - **Keyword Hits vs Total Keywords:** Indicates depth of concept coverage.
+    - **Final Rating (1–5):** Reflects overall alignment, with 5 representing strong reinforcement of key concepts.
+
+    **Course Data:**
+    {module_level_data}
+
+    **Response Guidelines:**
+    - Use formal tone and passive voice.
+    - Write a 2–4 line instructor-style summary of **overall keyword alignment** across the course.
+    - Identify which aspect (overlap, hit count, or distribution of top keywords) deviates most from ideal expectations (overlap→1, all keywords covered).
+    - Provide a concise and actionable suggestion for improving consistency and coverage of learning terminology.
+    - Avoid module-by-module analysis; focus on course-wide trends.
+
+    Provide a high-level course-level assessment of keyword alignment quality.
+    """
+
     return learner_prompt, instructor_prompt
 
 def prompt_lo_coverage(lo_coverage_raw, covered_los, total_los, coverage_threshold, los_above_threshold, final_rating):
@@ -1421,6 +1823,51 @@ def prompt_lo_coverage_batch(lo_coverage_raw_list, covered_los_list, total_los_l
     Provide a concise (2–4 line) batch-level summary identifying the objective-coverage component that deviates most from ideal (Raw Score → 1, Coverage Counts → Total).  
     Use passive voice and give actionable guidance on how he might improve completeness and alignment of learning objective coverage.
     """
+    return learner_prompt, instructor_prompt
+
+def prompt_lo_coverage_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s perception of whether a **course** successfully delivers on its promised learning objectives across multiple modules. The **LO Coverage** metric reflects how completely those objectives are addressed.
+
+    **Evaluation Methodology:**
+    - **Raw Coverage Score:** Fraction of objectives sufficiently matched (0 = none covered, 1 = fully covered).
+    - **Covered Learning Objectives:** Count of objectives meeting the similarity threshold.
+    - **Final Rating (1–5):** Indicates completeness and relevance of delivery.
+
+    **Expected Response Guidelines:**
+    - Perspective: Learner’s simulated viewpoint.
+    - Tone: Formal, passive, concise.
+    - Style: 2–4 sentence summary.
+    - Focus: Whether learning goals felt thoroughly delivered throughout the course.
+
+    **Prompt Instruction:**
+    Given the following **module-level data**, reflect on the **overall course-level** perception of learning objective coverage:
+
+    {module_level_data}
+
+    Write a short learner-style reflection summarizing whether the course felt complete in delivering its stated objectives. Avoid technical breakdowns. Focus on perceived thoroughness and alignment.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant evaluating **Learning Objective (LO) Coverage** across a course composed of multiple modules. This measures how thoroughly instructional content addresses the promised outcomes.
+
+    **Evaluation Methodology:**
+    - **Raw Coverage Score:** Fraction of objectives sufficiently matched (0 = none covered, 1 = fully covered).
+    - **Covered Learning Objectives:** Number of objectives meeting the similarity threshold.
+    - **Final Rating (1–5):** Indicates completeness and relevance of delivery.
+
+    **Course Module Data:**
+    {module_level_data}
+
+    **Response Guidelines:**
+    - Use formal tone and passive voice.
+    - Write a 2–4 line **course-level** summary highlighting the most significant deviation from ideal coverage (ideal: Raw Score → 1, Covered LOs = Total LOs).
+    - Suggest one actionable improvement to increase completeness and alignment.
+    - Avoid module-by-module commentary — focus on patterns and trends across the course.
+
+    Provide a concise instructor-style assessment summarizing coverage quality and opportunities for enhancement.
+    """
+    
     return learner_prompt, instructor_prompt
 
 def prompt_alignment_balance(alignment_balance_raw, mean_similarity, std_similarity, coefficient_of_variation, similarity_range, final_rating):
@@ -1520,6 +1967,55 @@ def prompt_alignment_balance_batch(alignment_balance_raw_list, mean_similarity_l
     """
     return learner_prompt, instructor_prompt
 
+def prompt_alignment_balance_course(module_level_data: str):
+    learner_prompt = f"""
+    You are simulating a learner’s perception of how evenly a **course** addresses its stated objectives across multiple modules. The **Alignment Balance** metric reflects whether topics receive fair and proportional attention throughout the learning journey.
+
+    **Evaluation Methodology:**
+    - **Alignment Balance Raw Score (0–1):** Indicates coverage evenness; higher values reflect better balance.
+    - **Mean Similarity:** Central tendency of objective coverage.
+    - **Standard Deviation / Coefficient of Variation:** Reflect spread and disparity in coverage.
+    - **Similarity Range:** Shows if certain objectives were especially over- or under-emphasized.
+    - **Final Ratings:** Scaled from 1 (imbalanced) to 5 (fair and comprehensive).
+
+    **Expected Response Guidelines:**
+    - Perspective: From a learner’s simulated point of view.
+    - Tone: Formal, passive, and concise.
+    - Style: 2–4 sentence reflection using passive voice wherever natural.
+    - Focus: Whether the learner would *feel* that objectives were addressed evenly across the course.
+
+    **Prompt Instruction:**
+    Given the following **module-level data**:
+
+    {module_level_data}
+
+    Write a short learner-style reflection summarizing the **overall sense of balance** across objectives for the course. Avoid technical jargon and module-by-module commentary. Focus on the overall perception of fairness in content coverage.
+    """
+
+    instructor_prompt = f"""
+    You are an AI assistant evaluating **Alignment Balance** across a course composed of multiple modules. This metric measures how evenly learning objectives are covered throughout the course.
+
+    **Evaluation Methodology:**
+    - **Alignment Balance Raw Score (0–1):** Higher is better.
+    - **Mean Similarity:** Indicates typical alignment with objectives.
+    - **Standard Deviation / Coefficient of Variation:** Highlight disparities in coverage.
+    - **Similarity Range:** Reveals over- or under-emphasis of specific objectives.
+    - **Final Ratings:** Scaled from 1 (imbalanced) to 5 (balanced).
+
+    **Course Data:**
+    {module_level_data}
+
+    **Response Guidelines:**
+    - Use passive voice and formal tone.
+    - Write a 2–4 line, course-level summary identifying which metric most consistently deviated from ideal balance.
+    - Provide one focused, actionable suggestion for improving fairness in coverage.
+    - Avoid module-specific breakdowns — focus on general patterns.
+
+    Provide a high-level diagnostic of the course’s alignment balance, emphasizing the most prevalent factor affecting fairness.
+    """
+    
+    return learner_prompt, instructor_prompt
+
 def analyze_transcript_alignment(los, transcript_text, file_name):
     """Analyze how well a transcript aligns with learning objectives using GPU acceleration"""
     if not los or not transcript_text:
@@ -1552,7 +2048,7 @@ def analyze_transcript_alignment(los, transcript_text, file_name):
     semantic_alignment_score = round(float(np.clip(semantic_alignment_raw * 4 + 1, 1, 5)), 2)
 
     # 2. LO coverage: percentage of LOs with at least one good match
-    threshold = 0.6  # Similarity threshold for "good" coverage
+    threshold = 0.4  # Similarity threshold for "good" coverage
     covered_los = np.sum(max_similarities >= threshold)
     lo_coverage_raw = float(covered_los / len(los))
     lo_coverage_score = round(float(np.clip(lo_coverage_raw * 4 + 1, 1, 5)), 2)
@@ -1644,23 +2140,49 @@ def analyze_transcript_alignment(los, transcript_text, file_name):
     return {
         "File Name": file_name,
         "Semantic Alignment Score": {
-            "Value": semantic_alignment_score,
-            "User Feedback": semantic_score_user_feedback,
+            "Intermediate Parameters": {
+                "Raw Score": semantic_alignment_raw,
+                "Max Similarities": [round(sim, 3) for sim in max_similarities],
+                "Mean Similarities": [round(sim, 3) for sim in mean_similarities],
+                "No.of Chunks": len(chunks),
+            },
+            "Final Score": semantic_alignment_score,
+            "User Perspective Assessment": semantic_score_user_feedback,
             "Instructor Feedback": semantic_score_instructor_feedback
         },
         "Keyword Alignment Score": {
-            "Value": keyword_result['score'],
-            "User Feedback": keyword_score_user_feedback,
+            "Intermediate Parameters": {
+                "Raw Score": keyword_result['intermediates']['overlap_score'],
+                "Keyword Hits": keyword_result['intermediates']['keyword_hits'],
+                "Total Keywords": keyword_result['intermediates']['total_keywords'],
+                "Top Keywords": keyword_result['intermediates']['top_keywords']
+            },
+            "Final Score": keyword_result['score'],
+            "User Perspective Assessment": keyword_score_user_feedback,
             "Instructor Feedback": keyword_score_instructor_feedback
         },
         "LO Coverage Score": {
-            "Value": lo_coverage_score,
-            "User Feedback": coverage_score_user_feedback,
+            "Intermediate Parameters": {
+                "Raw Score": lo_coverage_raw,
+                "Covered LOs": int(covered_los),
+                "Total LOs": len(los),
+                "Threshold": threshold,
+                "Above Threshold LOs": [i for i, sim in enumerate(max_similarities) if sim >= threshold]
+            },
+            "Final Score": lo_coverage_score,
+            "User Perspective Assessment": coverage_score_user_feedback,
             "Instructor Feedback": coverage_score_instructor_feedback
         },
         "Alignment Balance Score": {
-            "Value": alignment_balance_score,
-            "User Feedback": balance_score_user_feedback,
+            "Intermediate Parameters": {
+                "Raw Score": alignment_balance_raw,
+                "Mean Similarity": round(mean_sim, 3),
+                "Std Dev Similarity": round(std_sim, 3),
+                "Coefficient of Variation": round(coefficient_of_variation, 3),
+                "Similarity Range": similarity_range
+            },
+            "Final Score": alignment_balance_score,
+            "User Perspective Assessment": balance_score_user_feedback,
             "Instructor Feedback": balance_score_instructor_feedback
         }
     }
@@ -1671,7 +2193,6 @@ def analyze_module(module_name, los, transcript_files, service_account_file, rea
     print(f"Found {len(transcript_files)} transcript files")
     print(f"Found {len(reading_contents)} reading files")
     print(f"Learning Objectives: {len(los)}")
-
     transcript_metrics = Parallel(n_jobs=os.cpu_count()-1)(
         delayed(analyze_transcript_alignment)(
             los,
@@ -1679,7 +2200,6 @@ def analyze_module(module_name, los, transcript_files, service_account_file, rea
             file_name
         ) for file_path, file_name in tqdm(transcript_files, desc="Processing transcripts")
     )
-
     reading_metrics = [analyze_transcript_alignment(los, content, file_name) for file_name, content in reading_contents]
     module_metrics = transcript_metrics + reading_metrics
     return module_metrics
@@ -1823,9 +2343,23 @@ def convert_to_serializable(obj):
     else:
         return obj
 
+def get_folder_name(folder_id, service_account_file):
+    # Authenticate using service account file
+    credentials = service_account.Credentials.from_service_account_file(
+        service_account_file,
+        scopes=['https://www.googleapis.com/auth/drive.metadata.readonly']
+    )
+    # Build the Drive v3 API service
+    service = build('drive', 'v3', credentials=credentials)
+    # Get the folder metadata
+    folder = service.files().get(fileId=folder_id, fields='name').execute()
+    return folder.get('name')
+
 def perform_subtitle_analysis(service_account_file, folder_id):
     result_1 = {}
     result_2 = {}
+    result_1["Course Name"] = get_folder_name(folder_id, service_account_file)
+    result_1["Course Name"] = get_folder_name(folder_id, service_account_file)
     service = get_gdrive_service(service_account_file)
     # Try to fetch metadata.json
     metadata = fetch_metadata_json(service, folder_id)
@@ -1836,7 +2370,10 @@ def perform_subtitle_analysis(service_account_file, folder_id):
     transcript_results = []
     total_results_1 = []
     total_results_2 = []
+    count = 0
     for key, value in metadata.items():
+        if count >= 2:
+            break
         if key.startswith("Module") and isinstance(value, dict):
             module_name = value.get("Name", key)
             module_los = value.get("Learning Objectives", [])
@@ -1850,9 +2387,9 @@ def perform_subtitle_analysis(service_account_file, folder_id):
                 print(f"Warning: No learning objectives found for {module_name}. Skipping.")
                 continue
             # Get transcript files for this module
-            transcript_files = [(d["txt_file"],d["file_name"]) for d in module_files[module_name] if "txt_file" in d]
+            transcript_files = [(d["txt_file"],d["file_name"]) for d in module_files[module_name] if "txt_file" in d][:2]
             print(f"Transcript Files: {len(transcript_files)}")
-            reading_files = [d["pdf_file"] for d in module_files[module_name] if "pdf_file" in d]
+            reading_files = [d["pdf_file"] for d in module_files[module_name] if "pdf_file" in d][:1]
             custom_extraction_prompt = None
             reading_contents = [read_reading(file_path, service_account_file, custom_extraction_prompt) for file_path in reading_files]
             transcript_results_temp = Parallel(n_jobs=os.cpu_count() - 1, backend="multiprocessing")(
@@ -1862,32 +2399,307 @@ def perform_subtitle_analysis(service_account_file, folder_id):
             reading_results_temp = [evaluate_reading_content(file_name, reading_content) for file_name, reading_content in reading_contents]
             transcript_results.extend(transcript_results_temp + reading_results_temp)
             module_results_1["Results"] = transcript_results_temp + reading_results_temp
+            module_results_1["Easy-to-Understand Score"] = {}
+            easy_to_understand_ratings = [each["Easy-to-Understand Score"]["Final Score"] for each in module_results_1["Results"]]
+            avg_word_length_list = [each["Easy-to-Understand Score"]["Intermediate Parameters"]["Average Word Length"] for each in module_results_1["Results"]]
+            avg_syllables_list = [each["Easy-to-Understand Score"]["Intermediate Parameters"]["Average Syllables per word"] for each in module_results_1["Results"]]
+            raw_scores_list = [each["Easy-to-Understand Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_1["Results"]]
+            module_results_1["Easy-to-Understand Score"]["Score"] = round(sum(easy_to_understand_ratings)/len(easy_to_understand_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_easy_to_understand_batch(avg_word_length_list, avg_syllables_list, raw_scores_list, easy_to_understand_ratings)
+            module_results_1["Easy-to-Understand Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_1["Easy-to-Understand Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+            module_results_1["Engagement Score"] = {}
+            engagement_ratings = [each["Engagement Score"]["Final Score"] for each in module_results_1["Results"]]
+            avg_sentiment_list = [each["Engagement Score"]["Intermediate Parameters"]["Average Sentiment"] for each in module_results_1["Results"]]
+            positive_ratio_list = [each["Engagement Score"]["Intermediate Parameters"]["Positive Ratio"] for each in module_results_1["Results"]]
+            raw_scores_list = [each["Engagement Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_1["Results"]]
+            module_results_1["Engagement Score"]["Score"] = round(sum(engagement_ratings)/len(engagement_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_engagement_batch(avg_sentiment_list, positive_ratio_list, raw_scores_list, engagement_ratings)
+            module_results_1["Engagement Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_1["Engagement Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+            module_results_1["Pacing & Flow Score"] = {}
+            pacing_n_flow_ratings = [each["Pacing & Flow Score"]["Final Score"] for each in module_results_1["Results"]]
+            avg_similarity_list = [each["Pacing & Flow Score"]["Intermediate Parameters"]["Average Similarity"] for each in module_results_1["Results"]]
+            similarity_std_list = [each["Pacing & Flow Score"]["Intermediate Parameters"]["Similarity Std Dev"] for each in module_results_1["Results"]]
+            consistency_score_list = [each["Pacing & Flow Score"]["Intermediate Parameters"]["Consistency Score"] for each in module_results_1["Results"]]
+            raw_scores_list = [each["Pacing & Flow Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_1["Results"]]
+            module_results_1["Pacing & Flow Score"]["Score"] = round(sum(pacing_n_flow_ratings)/len(pacing_n_flow_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_pacing_flow_batch(avg_similarity_list, similarity_std_list, consistency_score_list, raw_scores_list, pacing_n_flow_ratings)
+            module_results_1["Pacing & Flow Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_1["Pacing & Flow Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+            module_results_1["Well Structured Score"] = {}
+            well_structured_ratings = [each["Well Structured Score"]["Final Score"] for each in module_results_1["Results"]]
+            unique_clusters_list = [each["Well Structured Score"]["Intermediate Parameters"]["Unique Clusters"] for each in module_results_1["Results"]]
+            total_clusters_list = [each["Well Structured Score"]["Intermediate Parameters"]["Total Clusters"] for each in module_results_1["Results"]]
+            cluster_diversity_list = [each["Well Structured Score"]["Intermediate Parameters"]["Cluster Diversity"] for each in module_results_1["Results"]]
+            raw_scores_list = [each["Well Structured Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_1["Results"]]
+            module_results_1["Well Structured Score"]["Score"] = round(sum(well_structured_ratings)/len(well_structured_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_well_structured_batch(unique_clusters_list, total_clusters_list, cluster_diversity_list, raw_scores_list, well_structured_ratings)
+            module_results_1["Well Structured Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_1["Well Structured Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+            module_results_1["Learning Value Score"] = {}
+            learning_value_ratings = [each["Learning Value Score"]["Final Score"] for each in module_results_1["Results"]]
+            avg_coherence_list = [each["Learning Value Score"]["Intermediate Parameters"]["Average Coherence"] for each in module_results_1["Results"]]
+            coherence_std_list = [each["Learning Value Score"]["Intermediate Parameters"]["Coherence Std Dev"] for each in module_results_1["Results"]]
+            focus_consistency_list = [each["Learning Value Score"]["Intermediate Parameters"]["Focus Consistency"] for each in module_results_1["Results"]]
+            raw_scores_list = [each["Learning Value Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_1["Results"]]
+            module_results_1["Learning Value Score"]["Score"] = round(sum(learning_value_ratings)/len(learning_value_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_learning_value_batch(avg_coherence_list, coherence_std_list, focus_consistency_list, raw_scores_list, learning_value_ratings)
+            module_results_1["Learning Value Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_1["Learning Value Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
             if not transcript_files:
                 print(f"Warning: No transcript files found for {module_name}. Skipping.")
                 continue
             # Analyze the module
             module_metrics = analyze_module(module_name, module_los, transcript_files, service_account_file, reading_contents)
-            #module_results.append(module_metrics)
             module_results_2["Results"] = module_metrics
+            module_results_2["Semantic Alignment Score"] = {}
+            semantic_alignment_ratings = [each["Semantic Alignment Score"]["Final Score"] for each in module_results_2["Results"]]
+            raw_scores_list = [each["Semantic Alignment Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_2["Results"]]
+            max_similarities_list = [each["Semantic Alignment Score"]["Intermediate Parameters"]["Max Similarities"] for each in module_results_2["Results"]]
+            mean_similarities_list = [each["Semantic Alignment Score"]["Intermediate Parameters"]["Mean Similarities"] for each in module_results_2["Results"]]
+            num_chunks_list = [each["Semantic Alignment Score"]["Intermediate Parameters"]["No.of Chunks"] for each in module_results_2["Results"]]
+            module_results_2["Semantic Alignment Score"]["Score"] = round(sum(semantic_alignment_ratings)/len(semantic_alignment_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_semantic_alignment_batch(raw_scores_list, max_similarities_list, mean_similarities_list, num_chunks_list, semantic_alignment_ratings)
+            module_results_2["Semantic Alignment Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_2["Semantic Alignment Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+            module_results_2["Keyword Alignment Score"] = {}
+            keyword_alignment_ratings = [each["Keyword Alignment Score"]["Final Score"] for each in module_results_2["Results"]]
+            raw_scores_list = [each["Keyword Alignment Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_2["Results"]]
+            keyword_hits_list = [each["Keyword Alignment Score"]["Intermediate Parameters"]["Keyword Hits"] for each in module_results_2["Results"]]
+            total_keywords_list = [each["Keyword Alignment Score"]["Intermediate Parameters"]["Total Keywords"] for each in module_results_2["Results"]]
+            top_keywords_list = [each["Keyword Alignment Score"]["Intermediate Parameters"]["Top Keywords"] for each in module_results_2["Results"]]
+            module_results_2["Keyword Alignment Score"]["Score"] = round(sum(keyword_alignment_ratings)/len(keyword_alignment_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_keyword_alignment_batch(raw_scores_list, keyword_hits_list, total_keywords_list, top_keywords_list, keyword_alignment_ratings)
+            module_results_2["Keyword Alignment Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_2["Keyword Alignment Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+            module_results_2["LO Coverage Score"] = {}
+            lo_coverage_ratings = [each["LO Coverage Score"]["Final Score"] for each in module_results_2["Results"]]
+            raw_scores_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_2["Results"]]
+            covered_los_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Covered LOs"] for each in module_results_2["Results"]]
+            total_los_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Total LOs"] for each in module_results_2["Results"]]
+            threshold_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Threshold"] for each in module_results_2["Results"]]
+            above_threshold_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Above Threshold LOs"] for each in module_results_2["Results"]]
+            module_results_2["LO Coverage Score"]["Score"] = round(sum(lo_coverage_ratings)/len(lo_coverage_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_lo_coverage_batch(raw_scores_list, covered_los_list, total_los_list, threshold_list, above_threshold_list, lo_coverage_ratings)
+            module_results_2["LO Coverage Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_2["LO Coverage Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+            module_results_2["Alignment Balance Score"] = {}
+            alignment_balance_ratings = [each["Alignment Balance Score"]["Final Score"] for each in module_results_2["Results"]]
+            raw_scores_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Raw Score"] for each in module_results_2["Results"]]
+            mean_similarities_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Mean Similarity"] for each in module_results_2["Results"]]
+            std_dev_similarities_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Std Dev Similarity"] for each in module_results_2["Results"]]
+            cv_similarities_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Coefficient of Variation"] for each in module_results_2["Results"]]
+            similarity_ranges_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Similarity Range"] for each in module_results_2["Results"]]
+            module_results_2["Alignment Balance Score"]["Score"] = round(sum(alignment_balance_ratings)/len(alignment_balance_ratings), 2)
+            learner_prompt, instructor_prompt = prompt_alignment_balance_batch(raw_scores_list, mean_similarities_list, std_dev_similarities_list, cv_similarities_list, similarity_ranges_list, alignment_balance_ratings)
+            module_results_2["Alignment Balance Score"]["User Perspective Assessment"] = execute_prompt(learner_prompt)
+            module_results_2["Alignment Balance Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
             total_results_1.append(module_results_1)
             total_results_2.append(module_results_2)
-            break
+            count += 1
     result_1["Module Results"] = total_results_1
-    result_2["Module results"] = total_results_2
-    # Generate course-level report
-    #transcript_report = compute_transcript_metrics(transcript_results)
-    #result_1["Overall Result"] = transcript_report
-    save_dict_to_json(convert_to_serializable(result_1), "Instruction Material Agent - Text Quality Results.json")
-    print("Text Quality Analysis Saved")
-    #transcript_lo_report = generate_course_report(module_results)
-    #result_2["Overall Result"] = transcript_lo_report
-    save_dict_to_json(convert_to_serializable(result_2), "Instruction Material Agent - Text LO Validation Results.json")
-    print("Text LO Alignment Analysis Saved")
-    #print("##############")
-    #print(transcript_report)
-    #print("##############")
-    #print(transcript_lo_report)
-    print(f"\nAnalysis complete!")
+    ###########################################################################################################
+    result_1["Course Results"] = {}
+    result_1["Course Results"]["Easy-to-Understand Score"] = {}
+    result_1["Course Results"]["Engagement Score"] = {}
+    result_1["Course Results"]["Pacing & Flow Score"] = {}
+    result_1["Course Results"]["Well Structured Score"] = {}
+    result_1["Course Results"]["Learning Value Score"] = {}
+    easy_2_understand_parameter = ""
+    engagement_parameter = ""
+    pacing_and_flow_parameter = ""
+    well_structured_parameter = ""
+    learning_value_parameter = ""
+    final_easy_to_understand_scores = []
+    final_pacing_and_flow_scores = []
+    final_engagement_scores = []
+    final_well_structured_scores = []
+    final_learning_value_scores = []
+    for module_result in result_1["Module Results"]:
+        module_name = module_result["Name"]
+        easy_to_understand_ratings = [each["Easy-to-Understand Score"]["Final Score"] for each in module_result["Results"]]
+        avg_word_length_list = [each["Easy-to-Understand Score"]["Intermediate Parameters"]["Average Word Length"] for each in module_result["Results"]]
+        avg_syllables_list = [each["Easy-to-Understand Score"]["Intermediate Parameters"]["Average Syllables per word"] for each in module_result["Results"]]
+        raw_scores_list = [each["Easy-to-Understand Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        easy_2_understand_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Average Word Length List: {avg_word_length_list}\n"
+            f"Average Syllables List: {avg_syllables_list}\n"
+            f"Raw Scores List: {raw_scores_list}\n"
+            f"Final Easy to Understand Ratings: {easy_to_understand_ratings}\n"
+        )
+        final_easy_to_understand_scores.append(module_result["Easy-to-Understand Score"]["Score"])
+        engagement_ratings = [each["Engagement Score"]["Final Score"] for each in module_result["Results"]]
+        avg_sentiment_list = [each["Engagement Score"]["Intermediate Parameters"]["Average Sentiment"] for each in module_result["Results"]]
+        positive_ratio_list = [each["Engagement Score"]["Intermediate Parameters"]["Positive Ratio"] for each in module_result["Results"]]
+        raw_scores_list = [each["Engagement Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        engagement_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Average Sentiment List: {avg_sentiment_list}\n"
+            f"Positive Ratio List: {positive_ratio_list}\n"
+            f"Raw Scores List: {raw_scores_list}\n"
+            f"Final Engagement Ratings: {engagement_ratings}\n"
+        )
+        final_engagement_scores.append(module_result["Engagement Score"]["Score"])
+        pacing_n_flow_ratings = [each["Pacing & Flow Score"]["Final Score"] for each in module_result["Results"]]
+        avg_similarity_list = [each["Pacing & Flow Score"]["Intermediate Parameters"]["Average Similarity"] for each in module_result["Results"]]
+        similarity_std_list = [each["Pacing & Flow Score"]["Intermediate Parameters"]["Similarity Std Dev"] for each in module_result["Results"]]
+        consistency_score_list = [each["Pacing & Flow Score"]["Intermediate Parameters"]["Consistency Score"] for each in module_result["Results"]]
+        raw_scores_list = [each["Pacing & Flow Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        pacing_and_flow_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Average Similarties List: {avg_similarity_list}\n"
+            f"Similarity Std Dev List: {similarity_std_list}\n"
+            f"Consistency Scores List: {consistency_score_list}\n"
+            f"Raw Scores List: {raw_scores_list}\n"
+            f"Final Pacing and Flow Ratings: {pacing_n_flow_ratings}\n"
+        )
+        final_pacing_and_flow_scores.append(module_result["Pacing & Flow Score"]["Score"])
+        well_structured_ratings = [each["Well Structured Score"]["Final Score"] for each in module_result["Results"]]
+        unique_clusters_list = [each["Well Structured Score"]["Intermediate Parameters"]["Unique Clusters"] for each in module_result["Results"]]
+        total_clusters_list = [each["Well Structured Score"]["Intermediate Parameters"]["Total Clusters"] for each in module_result["Results"]]
+        cluster_diversity_list = [each["Well Structured Score"]["Intermediate Parameters"]["Cluster Diversity"] for each in module_result["Results"]]
+        raw_scores_list = [each["Well Structured Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        well_structured_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Unique Clusters List: {unique_clusters_list}\n"
+            f"Total Clusters List: {total_clusters_list}\n"
+            f"Cluster Diversity List: {cluster_diversity_list}\n"
+            f"Raw Scores List: {raw_scores_list}\n"
+            f"Final Well Structured Ratings: {well_structured_ratings}\n"
+        )
+        final_well_structured_scores.append(module_result["Well Structured Score"]["Score"])
+        learning_value_ratings = [each["Learning Value Score"]["Final Score"] for each in module_result["Results"]]
+        avg_coherence_list = [each["Learning Value Score"]["Intermediate Parameters"]["Average Coherence"] for each in module_result["Results"]]
+        coherence_std_list = [each["Learning Value Score"]["Intermediate Parameters"]["Coherence Std Dev"] for each in module_result["Results"]]
+        focus_consistency_list = [each["Learning Value Score"]["Intermediate Parameters"]["Focus Consistency"] for each in module_result["Results"]]
+        raw_scores_list = [each["Learning Value Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        learning_value_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Average Coherence List: {avg_coherence_list}\n"
+            f"Coherence Std Dev List: {coherence_std_list}\n"
+            f"Focus Consistency List: {focus_consistency_list}\n"
+            f"Raw Scores List: {raw_scores_list}\n"
+            f"Final Learning Value Ratings: {learning_value_ratings}\n"
+        )
+        final_learning_value_scores.append(module_result["Learning Value Score"]["Score"])
+    learner_prompt, instructor_prompt = prompt_easy_to_understand_course(easy_2_understand_parameter)
+    result_1["Course Results"]["Easy-to-Understand Score"]["Score"] = round(sum(final_easy_to_understand_scores)/len(final_easy_to_understand_scores),2)
+    result_1["Course Results"]["Easy-to-Understand Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_1["Course Results"]["Easy-to-Understand Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    learner_prompt, instructor_prompt = prompt_engagement_course(engagement_parameter)
+    result_1["Course Results"]["Engagement Score"]["Score"] = round(sum(final_engagement_scores)/len(final_engagement_scores),2)
+    result_1["Course Results"]["Engagement Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_1["Course Results"]["Engagement Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    learner_prompt, instructor_prompt = prompt_pacing_flow_course(pacing_and_flow_parameter)
+    result_1["Course Results"]["Pacing & Flow Score"]["Score"] = round(sum(final_pacing_and_flow_scores)/len(final_pacing_and_flow_scores),2)
+    result_1["Course Results"]["Pacing & Flow Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_1["Course Results"]["Pacing & Flow Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    learner_prompt, instructor_prompt = prompt_well_structured_course(well_structured_parameter)
+    result_1["Course Results"]["Well Structured Score"]["Score"] = round(sum(final_well_structured_scores)/len(final_well_structured_scores),2)
+    result_1["Course Results"]["Well Structured Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_1["Course Results"]["Well Structured Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    learner_prompt, instructor_prompt = prompt_learning_value_course(learning_value_parameter)
+    result_1["Course Results"]["Learning Value Score"]["Score"] = round(sum(final_learning_value_scores)/len(final_learning_value_scores),2)
+    result_1["Course Results"]["Learning Value Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_1["Course Results"]["Learning Value Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    ###########################################################################################################
+    result_2["Module Results"] = total_results_2
+    result_2["Course Results"] = {}
+    result_2["Course Results"]["Semantic Alignment Score"] = {}
+    result_2["Course Results"]["Keyword Alignment Score"] = {}
+    result_2["Course Results"]["LO Coverage Score"] = {}
+    result_2["Course Results"]["Alignment Balance Score"] = {}
+    semantic_alignment_parameter = ""
+    keyword_alignment_parameter = ""
+    lo_coverage_parameter = ""
+    alignment_balance_parameter = ""
+    final_semantic_alignment_scores = []
+    final_keyword_alignment_scores = []
+    final_lo_coverage_scores = []
+    final_alignment_balance_scores = []
+    for module_result in result_2["Module Results"]:
+        module_name = module_result["Name"]
+        semantic_alignment_ratings = [each["Semantic Alignment Score"]["Final Score"] for each in module_result["Results"]]
+        raw_scores_list = [each["Semantic Alignment Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        max_similarities_list = [each["Semantic Alignment Score"]["Intermediate Parameters"]["Max Similarities"] for each in module_result["Results"]]
+        mean_similarities_list = [each["Semantic Alignment Score"]["Intermediate Parameters"]["Mean Similarities"] for each in module_result["Results"]]
+        num_chunks_list = [each["Semantic Alignment Score"]["Intermediate Parameters"]["No.of Chunks"] for each in module_result["Results"]]
+        semantic_alignment_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Max Similarities List: {max_similarities_list}\n"
+            f"Mean Similarities List: {mean_similarities_list}\n"
+            f"Num Chunks List: {num_chunks_list}\n"
+            f"Raw Scores List: {raw_scores_list}\n"
+            f"Final Semantic Alignment Ratings: {semantic_alignment_ratings}\n"
+        )
+        final_semantic_alignment_scores.append(module_result["Semantic Alignment Score"]["Score"])
+        keyword_alignment_ratings = [each["Keyword Alignment Score"]["Final Score"] for each in module_result["Results"]]
+        raw_scores_list = [each["Keyword Alignment Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        keyword_hits_list = [each["Keyword Alignment Score"]["Intermediate Parameters"]["Keyword Hits"] for each in module_result["Results"]]
+        total_keywords_list = [each["Keyword Alignment Score"]["Intermediate Parameters"]["Total Keywords"] for each in module_result["Results"]]
+        top_keywords_list = [each["Keyword Alignment Score"]["Intermediate Parameters"]["Top Keywords"] for each in module_result["Results"]]
+        keyword_alignment_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Overlap Scores List: {raw_scores_list}\n"
+            f"Keyword Hits List {keyword_hits_list}\n"
+            f"Total Keywords List: {total_keywords_list}\n"
+            f"Top Keywords List: {top_keywords_list}\n"
+            f"Final Keyword Alignment Ratings: {keyword_alignment_ratings}\n"
+        )
+        final_keyword_alignment_scores.append(module_result["Keyword Alignment Score"]["Score"])
+        lo_coverage_ratings = [each["LO Coverage Score"]["Final Score"] for each in module_result["Results"]]
+        raw_scores_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        covered_los_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Covered LOs"] for each in module_result["Results"]]
+        total_los_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Total LOs"] for each in module_result["Results"]]
+        threshold_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Threshold"] for each in module_result["Results"]]
+        above_threshold_list = [each["LO Coverage Score"]["Intermediate Parameters"]["Above Threshold LOs"] for each in module_result["Results"]]
+        lo_coverage_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Covered LOs List: {covered_los_list}\n"
+            f"Total LOs List {total_los_list}\n"
+            f"Thresold List: {threshold_list}\n"
+            f"Above Threshold LOs List: {above_threshold_list}\n"
+            f"Raw Scores List: {raw_scores_list}\n"
+            f"Final Lo Coverage Ratings: {lo_coverage_ratings}\n"
+        )
+        final_lo_coverage_scores.append(module_result["LO Coverage Score"]["Score"])
+        alignment_balance_ratings = [each["Alignment Balance Score"]["Final Score"] for each in module_result["Results"]]
+        raw_scores_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Raw Score"] for each in module_result["Results"]]
+        mean_similarities_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Mean Similarity"] for each in module_result["Results"]]
+        std_dev_similarities_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Std Dev Similarity"] for each in module_result["Results"]]
+        cv_similarities_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Coefficient of Variation"] for each in module_result["Results"]]
+        similarity_ranges_list = [each["Alignment Balance Score"]["Intermediate Parameters"]["Similarity Range"] for each in module_result["Results"]]
+        alignment_balance_parameter += (
+            f"Module Name: {module_name}\n"
+            f"Mean Similarities List: {mean_similarities_list}\n"
+            f"Std Dev Similarities List: {std_dev_similarities_list}\n"
+            f"Coef of Var Similarities List: {cv_similarities_list}\n"
+            f"Similarity Ranges List: {similarity_ranges_list}\n"
+            f"Raw Scores List: {raw_scores_list}\n"
+            f"Final Alignment Balance Ratings: {alignment_balance_ratings}\n"
+        )
+        final_alignment_balance_scores.append(module_result["Alignment Balance Score"]["Score"])
+    learner_prompt, instructor_prompt = prompt_semantic_alignment_course(semantic_alignment_parameter)
+    result_2["Course Results"]["Semantic Alignment Score"]["Score"] = round(sum(final_semantic_alignment_scores)/len(final_semantic_alignment_scores),2)
+    result_2["Course Results"]["Semantic Alignment Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_2["Course Results"]["Semantic Alignment Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    learner_prompt, instructor_prompt = prompt_keyword_alignment_course(keyword_alignment_parameter)
+    result_2["Course Results"]["Keyword Alignment Score"]["Score"] = round(sum(final_keyword_alignment_scores)/len(final_keyword_alignment_scores),2)
+    result_2["Course Results"]["Keyword Alignment Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_2["Course Results"]["Keyword Alignment Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    learner_prompt, instructor_prompt = prompt_lo_coverage_course(lo_coverage_parameter)
+    result_2["Course Results"]["LO Coverage Score"]["Score"] = round(sum(final_lo_coverage_scores)/len(final_lo_coverage_scores),2)
+    result_2["Course Results"]["LO Coverage Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_2["Course Results"]["LO Coverage Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    learner_prompt, instructor_prompt = prompt_alignment_balance_course(alignment_balance_parameter)
+    result_2["Course Results"]["Alignment Balance Score"]["Score"] = round(sum(final_alignment_balance_scores)/len(final_alignment_balance_scores),2)
+    result_2["Course Results"]["Alignment Balance Score"]["Learner Perspective Assessment"] = execute_prompt(learner_prompt)
+    result_2["Course Results"]["Alignment Balance Score"]["Instructor Feedback"] = execute_prompt(instructor_prompt)
+    save_dict_to_json(convert_to_serializable(result_1), "Text Quality Results.json")
+    save_dict_to_json(convert_to_serializable(result_2), "Text LO Validation Results.json")
+    print(f"Analysis complete!")
 
 if __name__ == "__main__":
     start_time = time.time()
